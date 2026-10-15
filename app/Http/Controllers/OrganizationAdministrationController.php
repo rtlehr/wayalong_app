@@ -3,8 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Facility;
+use App\Models\OrganizationRole;
 use App\Models\Organization;
+use App\Models\User;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use App\Support\OrganizationContext;
+use App\Support\OrganizationPermissions;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -14,24 +19,19 @@ use Inertia\Response;
 
 class OrganizationAdministrationController extends Controller
 {
-    private function authorizedOrganization(Request $request, OrganizationContext $context): Organization
+    private function authorizedOrganization(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, string $permission): Organization
     {
         $organization = $context->current($request);
         abort_unless($organization !== null, 403);
 
-        $isAdmin = $request->user()->organizations()
-            ->whereKey($organization->id)
-            ->wherePivot('status', 'active')
-            ->wherePivotIn('role', ['owner', 'admin'])
-            ->exists();
-        abort_unless($isAdmin, 403, 'Organization administrator access required.');
+        abort_unless($permissions->allows($request->user(), $organization, $permission), 403, 'Organization permission required.');
 
         return $organization;
     }
 
-    public function index(Request $request, OrganizationContext $context): Response
+    public function index(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): Response
     {
-        $organization = $this->authorizedOrganization($request, $context);
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_ORGANIZATION);
 
         return Inertia::render('organizations/Admin', [
             'organization' => $organization->only('id', 'name', 'slug', 'status', 'timezone'),
@@ -39,6 +39,7 @@ class OrganizationAdministrationController extends Controller
                 'id', 'name', 'code', 'status', 'address_line_1', 'address_line_2',
                 'city', 'state', 'postal_code', 'phone', 'email', 'timezone',
             ]),
+            'customRoles' => $organization->customRoles()->orderBy('name')->get(['id', 'name', 'permissions'])->map(fn ($role) => ['id' => $role->id, 'name' => $role->name, 'permissions' => $role->permissions, 'value' => 'custom:'.$role->id]),
             'members' => $organization->users()->orderBy('users.name')->get(['users.id', 'users.name', 'users.email'])
                 ->map(fn ($user) => [
                     'id' => $user->id, 'name' => $user->name, 'email' => $user->email,
@@ -47,9 +48,53 @@ class OrganizationAdministrationController extends Controller
         ]);
     }
 
-    public function update(Request $request, OrganizationContext $context): RedirectResponse
+    public function staffDirectory(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): Response
     {
-        $organization = $this->authorizedOrganization($request, $context);
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_MEMBERS);
+        $filters = $request->validate([
+            'search' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'status' => ['sometimes', 'nullable', Rule::in(['active', 'inactive'])],
+            'role' => ['sometimes', 'nullable', 'string', 'max:50'],
+        ]);
+
+        $search = trim($filters['search'] ?? '');
+        $status = $filters['status'] ?? '';
+        $role = $filters['role'] ?? '';
+        if ($role !== '' && ! $permissions->validRole($organization, $role)) {
+            throw ValidationException::withMessages(['role' => 'Invalid role for this organization.']);
+        }
+
+        $members = $organization->users()
+            ->when($search !== '', fn ($query) => $query->where(function ($nested) use ($search) {
+                $nested->where('users.name', 'like', '%'.$search.'%')
+                    ->orWhere('users.email', 'like', '%'.$search.'%');
+            }))
+            ->when($status !== '', fn ($query) => $query->where('organization_user.status', $status))
+            ->when($role !== '', fn ($query) => $query->where('organization_user.role', $role))
+            ->orderBy('users.name')->orderBy('users.id')
+            ->paginate(15)
+            ->withQueryString()
+            ->through(fn (User $member) => [
+                'id' => $member->id,
+                'name' => $member->name,
+                'email' => $member->email,
+                'role' => $member->pivot->role,
+                'status' => $member->pivot->status,
+            ]);
+
+        return Inertia::render('organizations/Staff', [
+            'organization' => $organization->only('id', 'name'),
+            'members' => $members,
+            'filters' => ['search' => $search, 'status' => $status, 'role' => $role],
+            'customRoles' => $organization->customRoles()->orderBy('name')->get(['id', 'name'])
+                ->map(fn ($item) => ['value' => 'custom:'.$item->id, 'name' => $item->name]),
+            'isOwner' => $organization->users()->whereKey($request->user()->id)->wherePivot('role', 'owner')->exists(),
+        ]);
+    }
+
+    public function update(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): RedirectResponse
+    {
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_ORGANIZATION);
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'timezone' => ['required', 'timezone'],
@@ -57,6 +102,115 @@ class OrganizationAdministrationController extends Controller
         $organization->update($data);
 
         return back()->with('success', 'Organization updated.');
+    }
+
+    private function assertMembershipChangeAllowed(Organization $organization, User $actor, User $member, string $role, string $status): void
+    {
+        $actorMembership = $organization->users()->whereKey($actor->id)->firstOrFail();
+        $targetMembership = $organization->users()->whereKey($member->id)->firstOrFail();
+        $actorIsOwner = $actorMembership->pivot->role === 'owner';
+        $targetIsOwner = $targetMembership->pivot->role === 'owner';
+
+        if (! $actorIsOwner && ($targetIsOwner || $role === 'owner')) {
+            abort(403, 'Only owners can manage owner memberships.');
+        }
+
+        if ($targetIsOwner && ($role !== 'owner' || $status !== 'active')) {
+            $activeOwnerCount = DB::table('organization_user')
+                ->where('organization_id', $organization->id)
+                ->where('role', 'owner')->where('status', 'active')->count();
+
+            if ($targetMembership->pivot->status === 'active' && $activeOwnerCount <= 1) {
+                throw ValidationException::withMessages(['role' => 'An organization must retain at least one active owner.']);
+            }
+        }
+    }
+
+    public function storeMember(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): RedirectResponse
+    {
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_MEMBERS);
+        $data = $request->validate([
+            'email' => ['required', 'email', 'max:255', Rule::exists('users', 'email')],
+            'role' => ['required', 'string', 'max:50', function (string $attribute, mixed $value, \Closure $fail) use ($organization, $permissions): void {
+                if (! is_string($value) || ! $permissions->validRole($organization, $value)) {
+                    $fail('Invalid role for this organization.');
+                }
+            }],
+        ]);
+
+
+        if ($data['role'] === 'owner') {
+            $actorMembership = $organization->users()->whereKey($request->user()->id)->firstOrFail();
+            abort_unless($actorMembership->pivot->role === 'owner', 403);
+        }
+
+        $member = User::query()->where('email', $data['email'])->firstOrFail();
+        if ($organization->users()->whereKey($member->id)->exists()) {
+            throw ValidationException::withMessages(['email' => 'This user already belongs to the organization.']);
+        }
+
+        $organization->users()->attach($member->id, ['role' => $data['role'], 'status' => 'active']);
+
+        return back()->with('success', 'Staff member added.');
+    }
+
+    public function updateMember(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, int $member): RedirectResponse
+    {
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_MEMBERS);
+        $data = $request->validate([
+            'role' => ['required', 'string', 'max:50', function (string $attribute, mixed $value, \Closure $fail) use ($organization, $permissions): void {
+                if (! is_string($value) || ! $permissions->validRole($organization, $value)) {
+                    $fail('Invalid role for this organization.');
+                }
+            }],
+            'status' => ['required', Rule::in(['active', 'inactive'])],
+        ]);
+        $target = $organization->users()->whereKey($member)->firstOrFail();
+
+        DB::transaction(function () use ($organization, $request, $target, $data): void {
+            // Serialize changes within one organization to protect its final active owner.
+            Organization::query()->whereKey($organization->id)->lockForUpdate()->firstOrFail();
+            $this->assertMembershipChangeAllowed($organization, $request->user(), $target, $data['role'], $data['status']);
+            $organization->users()->updateExistingPivot($target->id, $data);
+        });
+
+        return back()->with('success', 'Staff membership updated.');
+    }
+
+    public function storeRole(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): RedirectResponse
+    {
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_MEMBERS);
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:100', Rule::unique('organization_roles', 'name')->where('organization_id', $organization->id)],
+            'permissions' => ['present', 'array'],
+            'permissions.*' => ['string', Rule::in(OrganizationPermissions::CUSTOM_ROLE_PERMISSIONS)],
+        ]);
+        $organization->customRoles()->create($data);
+        return back()->with('success', 'Custom role created.');
+    }
+
+    public function updateRole(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, int $role): RedirectResponse
+    {
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_MEMBERS);
+        $record = $organization->customRoles()->findOrFail($role);
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:100', Rule::unique('organization_roles', 'name')->where('organization_id', $organization->id)->ignore($record->id)],
+            'permissions' => ['present', 'array'],
+            'permissions.*' => ['string', Rule::in(OrganizationPermissions::CUSTOM_ROLE_PERMISSIONS)],
+        ]);
+        $record->update($data);
+        return back()->with('success', 'Custom role updated.');
+    }
+
+    public function deleteRole(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, int $role): RedirectResponse
+    {
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_MEMBERS);
+        $record = $organization->customRoles()->findOrFail($role);
+        if ($organization->users()->wherePivot('role', 'custom:'.$record->id)->exists()) {
+            throw ValidationException::withMessages(['role' => 'Reassign members before deleting this role.']);
+        }
+        $record->delete();
+        return back()->with('success', 'Custom role deleted.');
     }
 
     /** @return array<string, mixed> */
@@ -78,26 +232,26 @@ class OrganizationAdministrationController extends Controller
         ]);
     }
 
-    public function storeFacility(Request $request, OrganizationContext $context): RedirectResponse
+    public function storeFacility(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): RedirectResponse
     {
-        $organization = $this->authorizedOrganization($request, $context);
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_FACILITIES);
         Facility::create($this->facilityData($request, $organization->id));
 
         return back()->with('success', 'Facility created.');
     }
 
-    public function updateFacility(Request $request, OrganizationContext $context, int $facility): RedirectResponse
+    public function updateFacility(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, int $facility): RedirectResponse
     {
-        $organization = $this->authorizedOrganization($request, $context);
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_FACILITIES);
         $record = Facility::findOrFail($facility);
         $record->update($this->facilityData($request, $organization->id, $record->id));
 
         return back()->with('success', 'Facility updated.');
     }
 
-    public function deleteFacility(Request $request, OrganizationContext $context, int $facility): RedirectResponse
+    public function deleteFacility(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, int $facility): RedirectResponse
     {
-        $this->authorizedOrganization($request, $context);
+        $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_FACILITIES);
         Facility::findOrFail($facility)->delete();
 
         return back()->with('success', 'Facility deleted.');

@@ -15,6 +15,11 @@ class Organization extends Model
     /** @use HasFactory<OrganizationFactory> */
     use HasFactory;
 
+    public function customRoles(): HasMany
+    {
+        return $this->hasMany(OrganizationRole::class);
+    }
+
     /** @return HasMany<Facility, $this> */
     public function facilities(): HasMany
     {
