@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Link } from '@inertiajs/vue3';
-import { BookOpen, FolderGit2, LayoutGrid } from '@lucide/vue';
+import { Link, usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
+import { BookOpen, FolderGit2, LayoutGrid, Building2 } from '@lucide/vue';
 import AppLogo from '@/components/AppLogo.vue';
 import NavFooter from '@/components/NavFooter.vue';
 import NavMain from '@/components/NavMain.vue';
@@ -17,13 +18,15 @@ import {
 import { dashboard } from '@/routes';
 import type { NavItem } from '@/types';
 
-const mainNavItems: NavItem[] = [
+const page = usePage();
+const mainNavItems = computed<NavItem[]>(() => [
     {
         title: 'Dashboard',
         href: dashboard(),
         icon: LayoutGrid,
     },
-];
+    ...(['owner', 'admin'].includes(((page.props.organizationContext as { active?: { id: number } | null; available?: { id: number; role: string }[] } | undefined)?.available ?? []).find((org) => org.id === (page.props.organizationContext as { active?: { id: number } | null } | undefined)?.active?.id)?.role ?? '') ? [{ title: 'Organization Admin', href: '/organization/admin', icon: Building2 }] : []),
+]);
 
 const footerNavItems: NavItem[] = [
     {

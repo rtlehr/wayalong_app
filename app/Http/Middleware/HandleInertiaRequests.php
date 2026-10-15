@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\OrganizationContext;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -41,7 +42,37 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => $request->user(),
             ],
+            'organizationContext' => fn () => $this->organizationContext($request),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
+        ];
+    }
+    /** @return array{active: array<string, mixed>|null, available: list<array<string, mixed>>} */
+    private function organizationContext(Request $request): array
+    {
+        if (! $request->user()) {
+            return ['active' => null, 'available' => []];
+        }
+
+        $active = app(OrganizationContext::class)->current($request);
+        $available = $request->user()->organizations()
+            ->where('organizations.status', 'active')
+            ->wherePivot('status', 'active')
+            ->orderBy('organizations.name')
+            ->get(['organizations.id', 'organizations.name', 'organizations.slug'])
+            ->map(fn ($organization) => [
+                'id' => $organization->id,
+                'name' => $organization->name,
+                'slug' => $organization->slug,
+                'role' => $organization->pivot->role,
+            ])->all();
+
+        return [
+            'active' => $active === null ? null : [
+                'id' => $active->id,
+                'name' => $active->name,
+                'slug' => $active->slug,
+            ],
+            'available' => $available,
         ];
     }
 }
