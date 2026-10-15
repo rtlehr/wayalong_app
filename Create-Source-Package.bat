@@ -19,7 +19,7 @@ if "%ZIP_NAME%"=="" (
     exit /b 1
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Pack-UncladSource.ps1" ^
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Pack-WayAlong.ps1" ^
     -ProjectPath "%PROJECT_DIR%" ^
     -ZipName "%ZIP_NAME%"
 
