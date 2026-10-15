@@ -2,11 +2,8 @@
 
 namespace App\Providers;
 
-use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\Date;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Validation\Rules\Password;
+use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -23,28 +20,46 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $this->configureDefaults();
+        $this->protectTestingDatabase();
     }
 
     /**
-     * Configure default behaviors for production-ready applications.
+     * Prevent the testing environment from using
+     * an unapproved database.
      */
-    protected function configureDefaults(): void
+    private function protectTestingDatabase(): void
     {
-        Date::use(CarbonImmutable::class);
+        if (! $this->app->environment('testing')) {
+            return;
+        }
 
-        DB::prohibitDestructiveCommands(
-            app()->isProduction(),
-        );
+        $connection = config('database.default');
 
-        Password::defaults(fn (): ?Password => app()->isProduction()
-            ? Password::min(12)
-                ->mixedCase()
-                ->letters()
-                ->numbers()
-                ->symbols()
-                ->uncompromised()
-            : null,
-        );
+        if ($connection !== 'mysql') {
+            throw new RuntimeException(
+                'WAYALONG TEST SAFETY: MySQL is required for testing.'
+            );
+        }
+
+        $settings = config('database.connections.mysql', []);
+
+        $database = $settings['database'] ?? null;
+        $url = $settings['url'] ?? null;
+
+        // Reject connection URLs that could override
+        // the explicitly configured database name.
+        if (! empty($url)) {
+            throw new RuntimeException(
+                'WAYALONG TEST SAFETY: DB_URL must be empty during tests.'
+            );
+        }
+
+        if ($database !== 'wayalong_testing') {
+            throw new RuntimeException(
+                'WAYALONG TEST SAFETY: Tests must use wayalong_testing. '
+                . 'Configured database: '
+                . ($database ?: '(not set)')
+            );
+        }
     }
 }
