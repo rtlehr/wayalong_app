@@ -3,6 +3,12 @@
 namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
+use App\Http\Controllers\OrganizationLoginController;
+use App\Support\OrganizationContext;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Support\Facades\Event;
+use App\Models\User;
+use Illuminate\Support\Facades\Hash;
 use App\Actions\Fortify\ResetUserPassword;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -32,6 +38,41 @@ class FortifyServiceProvider extends ServiceProvider
         $this->configureActions();
         $this->configureViews();
         $this->configureRateLimiting();
+        Fortify::authenticateUsing(function (Request $request): ?User {
+            $loginOrganizationId = $request->session()->get(OrganizationLoginController::LOGIN_ORGANIZATION_KEY);
+            $query = User::query()->where('email', $request->input('email'));
+            if ($loginOrganizationId !== null) {
+                // Identity is global; the requested organization's active membership
+                // provides authorization, regardless of the transitional owner field.
+                $query->whereHas('organizations', function ($builder) use ($loginOrganizationId) {
+                    $builder->whereKey($loginOrganizationId)
+                        ->where('organizations.status', 'active')
+                        ->where('organization_user.status', 'active');
+                });
+            }
+
+            // Never select an ambiguous identity. Login emails remain globally
+            // unique under the central identity model.
+            $matches = $query->limit(2)->get();
+            if ($matches->count() !== 1) {
+                return null;
+            }
+            $user = $matches->first();
+
+            return $user && $user->is_active && Hash::check((string) $request->input('password'), $user->password)
+                ? $user : null;
+        });
+
+        Event::listen(Login::class, function (Login $event): void {
+            $request = request();
+            if (! $request->hasSession()) return;
+            $organizationId = $request->session()->pull(OrganizationLoginController::LOGIN_ORGANIZATION_KEY);
+            if ($organizationId === null || ! $event->user instanceof User) return;
+            if ($event->user->organizations()->whereKey($organizationId)
+                ->where('organizations.status', 'active')->wherePivot('status', 'active')->exists()) {
+                $request->session()->put(OrganizationContext::SESSION_KEY, $organizationId);
+            }
+        });
     }
 
     /**

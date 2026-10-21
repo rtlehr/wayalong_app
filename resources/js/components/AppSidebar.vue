@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Link, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
-import { BookOpen, FolderGit2, LayoutGrid, Building2, PanelsTopLeft } from '@lucide/vue';
+import { BookOpen, FolderGit2, LayoutGrid, Building2, PanelsTopLeft, ShieldCheck, Mail } from '@lucide/vue';
 import AppLogo from '@/components/AppLogo.vue';
 import OrganizationSwitcher from '@/components/OrganizationSwitcher.vue';
 import NavFooter from '@/components/NavFooter.vue';
@@ -20,13 +20,17 @@ import { dashboard } from '@/routes';
 import type { NavItem } from '@/types';
 
 const page = usePage();
+const isPlatformAdmin = computed(() => (page.props.auth as { user?: { is_platform_admin?: boolean } } | undefined)?.user?.is_platform_admin === true);
+
 const mainNavItems = computed<NavItem[]>(() => [
     {
-        title: 'Dashboard',
+        title: isPlatformAdmin.value ? 'Platform Dashboard' : 'Dashboard',
         href: dashboard(),
         icon: LayoutGrid,
     },
-    ...(['owner', 'admin'].includes(((page.props.organizationContext as { active?: { id: number } | null; available?: { id: number; role: string }[] } | undefined)?.available ?? []).find((org) => org.id === (page.props.organizationContext as { active?: { id: number } | null } | undefined)?.active?.id)?.role ?? '') ? [{ title: 'Admin Command Center', href: '/admin', icon: PanelsTopLeft }, { title: 'Organization Admin', href: '/organization/admin', icon: Building2 }] : []),
+    { title: 'Message Center', href: '/messages', icon: Mail },
+    ...(isPlatformAdmin.value ? [{ title: 'Organization Management', href: '/platform/organizations', icon: Building2 }] : []),
+    ...(['owner', 'admin'].includes(((page.props.organizationContext as { active?: { id: number } | null; available?: { id: number; role: string }[] } | undefined)?.available ?? []).find((org) => org.id === (page.props.organizationContext as { active?: { id: number } | null } | undefined)?.active?.id)?.role ?? '') ? [{ title: 'Admin Command Center', href: '/admin', icon: PanelsTopLeft }, { title: 'Organization Settings', href: '/organization/admin', icon: Building2 }] : []),
 ]);
 
 const footerNavItems: NavItem[] = [

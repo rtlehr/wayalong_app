@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\Organization;
+use App\Models\Facility;
+use Illuminate\Support\Facades\DB;
 use App\Models\User;
 use App\Support\OrganizationContext;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -22,10 +24,27 @@ function staffDirectoryAs(string $role = 'owner'): Organization
     return $organization;
 }
 
+function assignStaffToFacility(Organization $organization, array $users): Facility
+{
+    $facility = Facility::factory()->create(['organization_id' => $organization->id]);
+    foreach ($users as $user) {
+        DB::table('organization_staff_facilities')->insert([
+            'organization_id' => $organization->id,
+            'facility_id' => $facility->id,
+            'user_id' => $user->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+    return $facility;
+}
+
+
 it('limits the staff directory to the selected organization', function () {
     $organization = staffDirectoryAs();
     $member = User::factory()->create(['name' => 'Taylor Member']);
     $organization->users()->attach($member, ['role' => 'clinician']);
+    assignStaffToFacility($organization, [$organization->users()->wherePivot('role', 'owner')->firstOrFail(), $member]);
     $foreignOrganization = Organization::factory()->create();
     $foreign = User::factory()->create(['name' => 'External Member']);
     $foreignOrganization->users()->attach($foreign);
@@ -44,6 +63,7 @@ it('searches the current organization by name or email', function () {
     $one = User::factory()->create(['name' => 'Unique Person', 'email' => 'unique@example.test']);
     $two = User::factory()->create(['name' => 'Another Person', 'email' => 'another@example.test']);
     $organization->users()->attach([$one->id, $two->id]);
+    assignStaffToFacility($organization, [$one, $two]);
 
     $this->get(route('organization.admin.staff.index', ['search' => 'unique@example.test']))
         ->assertOk()->assertInertia(fn (Assert $page) => $page
@@ -58,6 +78,7 @@ it('filters memberships by status and role together', function () {
     $inactive = User::factory()->create();
     $organization->users()->attach($active, ['role' => 'clinician', 'status' => 'active']);
     $organization->users()->attach($inactive, ['role' => 'clinician', 'status' => 'inactive']);
+    assignStaffToFacility($organization, [$active, $inactive]);
 
     $this->get(route('organization.admin.staff.index', ['role' => 'clinician', 'status' => 'inactive']))
         ->assertOk()->assertInertia(fn (Assert $page) => $page
@@ -72,6 +93,8 @@ it('paginates staff without leaking outside memberships', function () {
     foreach ($members as $member) {
         $organization->users()->attach($member);
     }
+
+    assignStaffToFacility($organization, array_merge([$organization->users()->wherePivot('role', 'owner')->firstOrFail()], $members->all()));
 
     $this->get(route('organization.admin.staff.index'))
         ->assertOk()->assertInertia(fn (Assert $page) => $page

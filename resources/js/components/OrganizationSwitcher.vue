@@ -15,6 +15,7 @@ type OrganizationContextProps = {
 };
 
 const page = usePage();
+const platformAdmin = computed(() => (page.props.auth as { user?: { is_platform_admin?: boolean } } | undefined)?.user?.is_platform_admin === true);
 const context = computed<OrganizationContextProps>(() =>
     (page.props.organizationContext as OrganizationContextProps | undefined) ?? { active: null, available: [] },
 );
@@ -63,7 +64,7 @@ function switchOrganization(id: number): void {
             </DropdownMenu>
             <SidebarMenuButton v-else size="lg" :disabled="true" data-test="organization-current">
                 <Building2 class="size-4" />
-                <span class="min-w-0 flex-1 truncate text-left">{{ active?.name ?? 'No active organization' }}</span>
+                <span class="min-w-0 flex-1 truncate text-left">{{ active?.name ?? (platformAdmin ? 'Platform Administration' : 'No active organization') }}</span>
             </SidebarMenuButton>
         </SidebarMenuItem>
     </SidebarMenu>

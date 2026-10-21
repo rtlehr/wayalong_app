@@ -23,11 +23,17 @@ defineOptions({
 defineProps<{
     status?: string;
     canResetPassword: boolean;
+    organizationName?: string;
 }>();
 </script>
 
 <template>
     <Head title="Log in" />
+
+    <div v-if="organizationName" class="mb-4 rounded-lg border px-4 py-3 text-center">
+        <p class="text-sm text-muted-foreground">Sign in to</p>
+        <p class="font-semibold">{{ organizationName }}</p>
+    </div>
 
     <div
         v-if="status"
@@ -36,7 +42,7 @@ defineProps<{
         {{ status }}
     </div>
 
-    <PasskeyVerify />
+    <PasskeyVerify v-if="!organizationName" />
 
     <Form
         v-bind="store.form()"
@@ -102,7 +108,7 @@ defineProps<{
             </Button>
         </div>
 
-        <div class="text-center text-sm text-muted-foreground">
+        <div v-if="!organizationName" class="text-center text-sm text-muted-foreground">
             Don't have an account?
             <TextLink :href="register()" :tabindex="5">Sign up</TextLink>
         </div>

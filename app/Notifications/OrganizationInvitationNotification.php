@@ -12,7 +12,19 @@ class OrganizationInvitationNotification extends Notification
 
     public function __construct(public string $organizationName, public string $invitationUrl) {}
 
-    public function via(object $notifiable): array { return ['mail']; }
+    public function via(object $notifiable): array
+    {
+        return $notifiable instanceof \App\Models\User ? ['mail', 'database'] : ['mail'];
+    }
+
+    public function toDatabase(object $notifiable): array
+    {
+        return [
+            'title' => 'Organization invitation',
+            'message' => 'You have been invited to join '.$this->organizationName.' on WayAlong. Open the invitation to review and accept.',
+            'url' => $this->invitationUrl,
+        ];
+    }
 
     public function toMail(object $notifiable): MailMessage
     {

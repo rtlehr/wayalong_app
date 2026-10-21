@@ -7,12 +7,17 @@ type Tool = { key: string; title: string; description: string; section: string; 
 const props = defineProps<{
     organization: { id: number; name: string };
     tools: Tool[];
+    canManagePlatform?: boolean;
     stats: { facilities: number; activeFacilities: number; staff: number; activeStaff: number; customRoles: number; pendingInvitations: number };
 }>();
 const query = ref('');
 const searchEl = ref<HTMLInputElement | null>(null);
 const selected = ref(0);
 const recent = ref<string[]>([]);
+const favorites = ref<string[]>([]);
+const favoriteKey = computed(() => `wayalong.admin.favorites.${props.organization.id}`);
+const favoriteTools = computed(() => favorites.value.map(key => props.tools.find(tool => tool.key === key)).filter((tool): tool is Tool => !!tool));
+const toggleFavorite = (tool: Tool) => { favorites.value = favorites.value.includes(tool.key) ? favorites.value.filter(key => key !== tool.key) : [...favorites.value, tool.key]; try { window.localStorage.setItem(favoriteKey.value, JSON.stringify(favorites.value)); } catch { /* optional */ } };
 const recentKey = computed(() => `wayalong.admin.recent.${props.organization.id}`);
 const filtered = computed(() => props.tools.filter(tool => [tool.title, tool.description, tool.section, ...tool.keywords].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())));
 const sections = computed(() => [...new Set(filtered.value.map(tool => tool.section))]);
@@ -35,6 +40,7 @@ const onKey = (event: KeyboardEvent) => {
 };
 onMounted(() => {
     try { const parsed = JSON.parse(window.localStorage.getItem(recentKey.value) || '[]'); if (Array.isArray(parsed)) recent.value = parsed.filter((v): v is string => typeof v === 'string'); } catch { recent.value = []; }
+    try { const parsed = JSON.parse(window.localStorage.getItem(favoriteKey.value) || '[]'); if (Array.isArray(parsed)) favorites.value = parsed.filter((v): v is string => typeof v === 'string'); } catch { favorites.value = []; }
     window.addEventListener('keydown', onKey);
 });
 onUnmounted(() => window.removeEventListener('keydown', onKey));
@@ -65,6 +71,7 @@ const focusSearch = async () => { await nextTick(); searchEl.value?.focus(); };
             <div class="rounded-xl border bg-card p-4"><div class="flex items-center gap-2 text-sm text-muted-foreground"><Clock3 class="size-4" /> Pending invitations</div><div class="mt-2 text-3xl font-semibold">{{ stats.pendingInvitations }}</div><p class="mt-1 text-xs text-muted-foreground">Unaccepted, unexpired</p></div>
         </section>
 
+        <section v-if="!query && favoriteTools.length" class="space-y-3" aria-label="Common access"><h2 class="text-lg font-semibold">Common access</h2><div class="flex flex-wrap gap-2"><Link v-for="tool in favoriteTools" :key="tool.key" :href="tool.href" @click="remember(tool)" class="rounded-full border px-4 py-2 text-sm hover:bg-accent">{{ tool.title }}</Link></div></section>
         <section v-if="!query && recentTools.length" aria-label="Recently used tools" class="space-y-3">
             <h2 class="text-lg font-semibold">Recently used</h2>
             <div class="flex flex-wrap gap-2"><Link v-for="tool in recentTools" :key="tool.key" :href="tool.href" @click="remember(tool)" class="rounded-full border px-4 py-2 text-sm hover:bg-accent">{{ tool.title }}</Link></div>
@@ -73,13 +80,17 @@ const focusSearch = async () => { await nextTick(); searchEl.value?.focus(); };
         <section v-for="section in sections" :key="section" class="space-y-3">
             <h2 class="text-lg font-semibold">{{ section }}</h2>
             <div class="grid gap-3 md:grid-cols-2">
-                <Link v-for="tool in filtered.filter(item => item.section === section)" :key="tool.key" :href="tool.href" @click="remember(tool)"
-                    class="group flex items-start justify-between gap-4 rounded-xl border bg-card p-5 transition-colors hover:border-primary/50 hover:bg-accent/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                <div v-for="tool in filtered.filter(item => item.section === section)" :key="tool.key" class="relative">
+                <button type="button" class="absolute right-3 top-3 z-10 rounded-md border bg-background px-2 py-1 text-xs hover:bg-accent" :aria-label="favorites.includes(tool.key) ? `Remove ${tool.title} from common access` : `Add ${tool.title} to common access`" @click="toggleFavorite(tool)">{{ favorites.includes(tool.key) ? "★" : "☆" }}</button>
+                <Link :href="tool.href" @click="remember(tool)"
+                    class="group flex items-start justify-between gap-4 rounded-xl border bg-card p-5 pr-16 transition-colors hover:border-primary/50 hover:bg-accent/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                     :class="{ 'border-primary/60': query && filtered[selected]?.key === tool.key }">
                     <div class="space-y-1"><h3 class="font-semibold">{{ tool.title }}</h3><p class="text-sm text-muted-foreground">{{ tool.description }}</p></div><ArrowUpRight class="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
                 </Link>
+                </div>
             </div>
         </section>
+        <div v-if="canManagePlatform" class="rounded-xl border p-4"><a href="/platform/organizations" class="font-medium underline">Platform · Organization Management →</a><p class="mt-1 text-sm text-muted-foreground">Create, edit, deactivate, and safely delete organizations.</p></div>
         <footer class="flex items-center gap-2 border-t pt-4 text-xs text-muted-foreground"><CheckCircle2 class="size-4" /> Tools are filtered by your permissions in the selected organization. Additional modules will appear here as they are built.</footer>
     </main>
 </template>

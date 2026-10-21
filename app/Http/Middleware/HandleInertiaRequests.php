@@ -43,6 +43,17 @@ class HandleInertiaRequests extends Middleware
                 'user' => $request->user(),
             ],
             'organizationContext' => fn () => $this->organizationContext($request),
+            'statusBanner' => fn () => [
+                'success' => $request->session()->get('success'),
+                'error' => $request->session()->get('error'),
+                'warning' => $request->session()->get('warning'),
+                'info' => $request->session()->get('info'),
+            ],
+            'alerts' => fn () => $request->user()?->unreadNotifications()->latest()->limit(10)->get()->map(fn ($notification) => [
+                'id' => $notification->id,
+                'title' => $notification->data['title'] ?? 'WayAlong notification',
+                'message' => $notification->data['message'] ?? '',
+            ])->all() ?? [],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

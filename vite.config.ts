@@ -9,7 +9,22 @@ import { defineConfig, lazyPlugins } from 'vite-plus';
 export default defineConfig({
     plugins: lazyPlugins(() => [
         laravel({
-            input: ['resources/css/app.css', 'resources/js/app.ts'],
+            input: [
+                'resources/css/app.css',
+                'resources/js/app.ts',
+                // Page entries referenced by the Inertia Blade view must be in the Vite manifest.
+                'resources/js/pages/organizations/Admin.vue',
+                'resources/js/pages/organizations/Facilities.vue',
+                'resources/js/pages/organizations/Roles.vue',
+                'resources/js/pages/organizations/Members.vue',
+                'resources/js/pages/organizations/Staff.vue',
+                'resources/js/pages/organizations/StaffForm.vue',
+                'resources/js/pages/organizations/Users.vue',
+                'resources/js/pages/organizations/UserForm.vue',
+                'resources/js/pages/platform/Organizations.vue',
+                'resources/js/pages/platform/Dashboard.vue',
+                'resources/js/pages/platform/OrganizationForm.vue',
+            ],
             refresh: true,
             fonts: [
                 bunny('Instrument Sans', {

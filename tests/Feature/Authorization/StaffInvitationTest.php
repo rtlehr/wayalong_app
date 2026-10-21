@@ -95,3 +95,46 @@ it('rejects invalid invitation tokens and prevents replay', function () {
     $this->post(route('invitations.accept', $token), $payload)->assertRedirect();
     $this->post(route('invitations.accept', $token), $payload)->assertStatus(410);
 });
+
+it('returns an existing identity to the invitation after opening organization login', function () {
+    $organization = Organization::factory()->create(['slug' => 'invitation-example']);
+    $existing = User::factory()->create();
+    [, $token] = invitationToken($organization, $existing->email);
+
+    $this->get(route('invitations.sign-in', $token))
+        ->assertRedirect(route('login'));
+    $this->assertEquals(route('invitations.show', $token), session('url.intended'));
+    $this->get(route('invitations.show', $token))
+        ->assertInertia(fn (\Inertia\Testing\AssertableInertia $page) => $page
+            ->component('invitations/Accept')
+            ->where('existingAccount', true)
+            ->where('signedInAsInvited', false)
+            ->where('signInUrl', route('invitations.sign-in', $token))
+            ->etc());
+});
+
+it('links an existing central identity to a second organization without changing their password', function () {
+    $first = Organization::factory()->create();
+    $second = Organization::factory()->create();
+    $person = User::factory()->create();
+    $originalPassword = $person->password;
+    $first->users()->attach($person, ['role' => 'staff', 'status' => 'active']);
+    [, $token] = invitationToken($second, $person->email, 'clinician');
+
+    $this->actingAs($person)->post(route('invitations.accept', $token))
+        ->assertRedirect(route('dashboard'));
+
+    expect(User::where('email', $person->email)->count())->toBe(1)
+        ->and($person->fresh()->password)->toBe($originalPassword)
+        ->and($first->users()->whereKey($person->id)->first()->pivot->role)->toBe('staff')
+        ->and($second->users()->whereKey($person->id)->first()->pivot->role)->toBe('clinician');
+});
+
+it('refuses to link a globally inactive identity through an invitation', function () {
+    $organization = Organization::factory()->create();
+    $disabled = User::factory()->create(['is_active' => false]);
+    [, $token] = invitationToken($organization, $disabled->email);
+
+    $this->actingAs($disabled)->post(route('invitations.accept', $token))->assertForbidden();
+    expect($organization->users()->whereKey($disabled->id)->exists())->toBeFalse();
+});

@@ -21,6 +21,7 @@ final class AdminCommandCenterController extends Controller
 
         return Inertia::render('admin/CommandCenter', [
             'organization' => $organization->only('id', 'name'),
+            'canManagePlatform' => (bool) $request->user()->is_platform_admin,
             'tools' => $tools,
             'stats' => [
                 'facilities' => $organization->facilities()->count(),

@@ -48,6 +48,45 @@ class OrganizationAdministrationController extends Controller
         ]);
     }
 
+    public function facilitiesPage(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): Response
+    {
+        return $this->administrationPage($request, $context, $permissions, 'organizations/Facilities');
+    }
+
+    public function rolesPage(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): Response
+    {
+        return $this->administrationPage($request, $context, $permissions, 'organizations/Roles');
+    }
+
+    public function membersPage(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): Response
+    {
+        return $this->administrationPage($request, $context, $permissions, 'organizations/Members', OrganizationPermissions::MANAGE_MEMBERS);
+    }
+
+    private function administrationPage(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, string $page, string $permission = OrganizationPermissions::MANAGE_ORGANIZATION): Response
+    {
+        $organization = $this->authorizedOrganization($request, $context, $permissions, $permission);
+
+        return Inertia::render($page, $this->administrationProps($organization));
+    }
+
+    private function administrationProps(Organization $organization): array
+    {
+        return [
+            'organization' => $organization->only('id', 'name', 'slug', 'status', 'timezone'),
+            'facilities' => Facility::query()->where('organization_id', $organization->id)->orderBy('name')->get([
+                'id', 'name', 'code', 'status', 'address_line_1', 'address_line_2',
+                'city', 'state', 'postal_code', 'phone', 'email', 'timezone',
+            ]),
+            'customRoles' => $organization->customRoles()->orderBy('name')->get(['id', 'name', 'permissions'])->map(fn ($role) => ['id' => $role->id, 'name' => $role->name, 'permissions' => $role->permissions, 'value' => 'custom:'.$role->id]),
+            'members' => $organization->users()->orderBy('users.name')->get(['users.id', 'users.name', 'users.email'])
+                ->map(fn ($user) => [
+                    'id' => $user->id, 'name' => $user->name, 'email' => $user->email,
+                    'role' => $user->pivot->role, 'status' => $user->pivot->status,
+                ]),
+        ];
+    }
+
     public function staffDirectory(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): Response
     {
         $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_MEMBERS);
@@ -55,6 +94,7 @@ class OrganizationAdministrationController extends Controller
             'search' => ['sometimes', 'nullable', 'string', 'max:100'],
             'status' => ['sometimes', 'nullable', Rule::in(['active', 'inactive'])],
             'role' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'facility_id' => ['sometimes', 'nullable', 'integer', Rule::exists('facilities', 'id')->where('organization_id', $organization->id)],
         ]);
 
         $search = trim($filters['search'] ?? '');
@@ -64,7 +104,11 @@ class OrganizationAdministrationController extends Controller
             throw ValidationException::withMessages(['role' => 'Invalid role for this organization.']);
         }
 
+        $facilities = $organization->facilities()->orderBy('name')->get(['id', 'name', 'code']);
+        $facilityId = (int) ($filters['facility_id'] ?? $facilities->first()?->id ?? 0);
         $members = $organization->users()
+            ->whereIn('users.id', DB::table('organization_staff_facilities')
+                ->where('organization_id', $organization->id)->where('facility_id', $facilityId)->select('user_id'))
             ->when($search !== '', fn ($query) => $query->where(function ($nested) use ($search) {
                 $nested->where('users.name', 'like', '%'.$search.'%')
                     ->orWhere('users.email', 'like', '%'.$search.'%');
@@ -85,11 +129,89 @@ class OrganizationAdministrationController extends Controller
         return Inertia::render('organizations/Staff', [
             'organization' => $organization->only('id', 'name'),
             'members' => $members,
-            'filters' => ['search' => $search, 'status' => $status, 'role' => $role],
+            'filters' => ['search' => $search, 'status' => $status, 'role' => $role, 'facility_id' => $facilityId],
+            'availableFacilities' => $facilities,
             'customRoles' => $organization->customRoles()->orderBy('name')->get(['id', 'name'])
                 ->map(fn ($item) => ['value' => 'custom:'.$item->id, 'name' => $item->name]),
             'isOwner' => $organization->users()->whereKey($request->user()->id)->wherePivot('role', 'owner')->exists(),
         ]);
+    }
+
+    private function staffFormProps(Request $request, Organization $organization): array
+    {
+        return [
+            'organization' => $organization->only('id', 'name'),
+            'customRoles' => $organization->customRoles()->orderBy('name')->get(['id', 'name'])
+                ->map(fn ($role) => ['value' => 'custom:'.$role->id, 'name' => $role->name]),
+            'isOwner' => $organization->users()->whereKey($request->user()->id)->wherePivot('role', 'owner')->exists(),
+            'eligibleUsers' => $organization->users()->orderBy('users.name')->get(['users.id', 'users.name', 'users.email'])->map(fn ($user) => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email]),
+            'availableFacilities' => $organization->facilities()->orderBy('name')->get(['id', 'name', 'code']),
+        ];
+    }
+
+    public function createStaff(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): Response
+    {
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_MEMBERS);
+        return Inertia::render('organizations/StaffForm', $this->staffFormProps($request, $organization) + ['mode' => 'create']);
+    }
+
+    public function viewStaff(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, int $member): Response
+    {
+        return $this->staffMemberPage($request, $context, $permissions, $member, 'view');
+    }
+
+    public function editStaff(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, int $member): Response
+    {
+        return $this->staffMemberPage($request, $context, $permissions, $member, 'edit');
+    }
+
+    private function staffMemberPage(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, int $member, string $mode): Response
+    {
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_MEMBERS);
+        $user = $organization->users()->whereKey($member)->firstOrFail();
+        $assignedIds = DB::table('organization_staff_facilities')->where('organization_id', $organization->id)->where('user_id', $user->id)->pluck('facility_id')->map(fn ($id) => (int) $id);
+        $facilityId = (int) ($request->query('facility_id') ?? $assignedIds->first() ?? 0);
+        if ($facilityId !== 0 && ! $assignedIds->contains($facilityId)) {
+            abort(404);
+        }
+        return Inertia::render('organizations/StaffForm', $this->staffFormProps($request, $organization) + [
+            'selectedFacilityId' => $facilityId,
+            'facilityStaffDetails' => $facilityId ? DB::table('facility_staff_profiles')->where('organization_id', $organization->id)->where('user_id', $user->id)->where('facility_id', $facilityId)->first() : null,
+            'mode' => $mode,
+            'member' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email,
+                'role' => $user->pivot->role, 'status' => $user->pivot->status],
+            'staffDetails' => DB::table('organization_staff_details')->where('organization_id', $organization->id)->where('user_id', $user->id)->first(),
+            'assignedFacilities' => DB::table('organization_staff_facilities')->where('organization_id', $organization->id)->where('user_id', $user->id)->pluck('facility_id'),
+        ]);
+    }
+
+    public function deleteStaff(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, int $member): RedirectResponse
+    {
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_MEMBERS);
+        $facilityId = $request->integer('facility_id');
+        if ($facilityId > 0) {
+            abort_unless($organization->facilities()->whereKey($facilityId)->exists(), 404);
+            abort_unless($organization->users()->whereKey($member)->exists(), 404);
+            DB::transaction(function () use ($organization, $member, $facilityId): void {
+                DB::table('facility_staff_profiles')->where('organization_id', $organization->id)
+                    ->where('user_id', $member)->where('facility_id', $facilityId)->delete();
+                DB::table('organization_staff_facilities')->where('organization_id', $organization->id)
+                    ->where('user_id', $member)->where('facility_id', $facilityId)->delete();
+            });
+            return redirect()->route('organization.admin.staff.index', ['facility_id' => $facilityId])
+                ->with('success', 'Staff assignment removed from this facility. User and organization membership preserved.');
+        }
+        DB::transaction(function () use ($organization, $request, $member): void {
+            Organization::query()->whereKey($organization->id)->lockForUpdate()->firstOrFail();
+            $target = $organization->users()->whereKey($member)->firstOrFail();
+            // Membership removal is not account deletion. Reuse the owner safety checks.
+            $this->assertMembershipChangeAllowed($organization, $request->user(), $target, 'staff', 'inactive');
+            DB::table('organization_staff_facilities')->where('organization_id', $organization->id)->where('user_id', $target->id)->delete();
+            DB::table('organization_staff_details')->where('organization_id', $organization->id)->where('user_id', $target->id)->delete();
+            DB::table('facility_staff_profiles')->where('organization_id', $organization->id)->where('user_id', $target->id)->delete();
+            $organization->users()->detach($target->id);
+        });
+        return redirect()->route('organization.admin.staff.index')->with('success', 'Staff membership removed. The user account remains available.');
     }
 
     public function update(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): RedirectResponse
@@ -151,7 +273,7 @@ class OrganizationAdministrationController extends Controller
 
         $organization->users()->attach($member->id, ['role' => $data['role'], 'status' => 'active']);
 
-        return back()->with('success', 'Staff member added.');
+        return redirect()->route('organization.admin.staff.index')->with('success', 'Staff member added.');
     }
 
     public function updateMember(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, int $member): RedirectResponse
@@ -174,7 +296,52 @@ class OrganizationAdministrationController extends Controller
             $organization->users()->updateExistingPivot($target->id, $data);
         });
 
-        return back()->with('success', 'Staff membership updated.');
+        return redirect()->route('organization.admin.staff.index')->with('success', 'Staff membership updated.');
+    }
+
+    public function updateStaffDetails(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, int $member): RedirectResponse
+    {
+        $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_MEMBERS);
+        $organization->users()->whereKey($member)->firstOrFail();
+        $data = $request->validate([
+            'facility_id' => ['sometimes', 'integer', Rule::exists('facilities', 'id')->where('organization_id', $organization->id)],
+            'job_title' => ['nullable', 'string', 'max:255'],
+            'staff_type' => ['nullable', 'string', 'max:255'],
+            'credentials' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+            'facility_ids' => ['required', 'array'],
+            'facility_ids.*' => ['integer', 'distinct', Rule::exists('facilities', 'id')->where('organization_id', $organization->id)],
+        ]);
+
+        if (isset($data['facility_id'])) {
+            $facilityId = (int) $data['facility_id'];
+            abort_unless(DB::table('organization_staff_facilities')->where('organization_id', $organization->id)
+                ->where('user_id', $member)->where('facility_id', $facilityId)->exists(), 403);
+            DB::table('facility_staff_profiles')->updateOrInsert(
+                ['organization_id' => $organization->id, 'facility_id' => $facilityId, 'user_id' => $member],
+                ['job_title' => $data['job_title'] ?? null, 'staff_type' => $data['staff_type'] ?? null,
+                    'credentials' => $data['credentials'] ?? null, 'notes' => $data['notes'] ?? null, 'updated_at' => now()]
+            );
+            return redirect()->route('organization.admin.staff.edit', ['member' => $member, 'facility_id' => $facilityId])
+                ->with('success', 'Facility staff details saved.');
+        }
+        DB::transaction(function () use ($organization, $member, $data): void {
+            $now = now();
+            DB::table('organization_staff_details')->updateOrInsert(
+                ['organization_id' => $organization->id, 'user_id' => $member],
+                ['job_title' => $data['job_title'] ?? null, 'staff_type' => $data['staff_type'] ?? null,
+                    'credentials' => $data['credentials'] ?? null, 'notes' => $data['notes'] ?? null, 'updated_at' => $now]
+            );
+            DB::table('organization_staff_facilities')->where('organization_id', $organization->id)->where('user_id', $member)->delete();
+            foreach ($data['facility_ids'] as $facilityId) {
+                DB::table('organization_staff_facilities')->insert([
+                    'organization_id' => $organization->id, 'user_id' => $member, 'facility_id' => $facilityId,
+                    'created_at' => $now, 'updated_at' => $now,
+                ]);
+            }
+        });
+
+        return redirect()->route('organization.admin.staff.edit', $member)->with('success', 'Staff details saved.');
     }
 
     public function storeRole(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): RedirectResponse

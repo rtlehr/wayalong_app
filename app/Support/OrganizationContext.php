@@ -31,7 +31,7 @@ class OrganizationContext
                 return $organization;
             }
 
-            $request->session()->forget(self::SESSION_KEY);
+            $request->session()->forget([self::SESSION_KEY, FacilityContext::SESSION_KEY]);
         }
 
         $organization = $organizations->orderBy('organizations.id')->first();
@@ -58,6 +58,9 @@ class OrganizationContext
             ->exists();
 
         if ($allowed) {
+            if ((int) $request->session()->get(self::SESSION_KEY) !== $organizationId) {
+                $request->session()->forget(FacilityContext::SESSION_KEY);
+            }
             $request->session()->put(self::SESSION_KEY, $organizationId);
         }
 
