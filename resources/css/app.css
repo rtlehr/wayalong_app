@@ -170,3 +170,166 @@
         @apply bg-background text-foreground;
     }
 }
+
+/* WayAlong administration visual language. Scoped to administrative routes so
+   clinical and client-facing layouts keep their own visual treatment. */
+@layer components {
+    .wayalong-admin-workspace {
+        --admin-accent: #1c5b83;
+        --admin-border: #dbe5ef;
+        --admin-shadow: 0 12px 30px -20px rgba(23, 50, 77, .23);
+        background: linear-gradient(160deg, #f2f7fb 0%, #f8fafc 44%, #f5f8fc 100%);
+        min-height: 100vh;
+    }
+    .dark .wayalong-admin-workspace {
+        --admin-accent: #91c3e9;
+        --admin-border: #33475c;
+        --admin-shadow: 0 12px 30px -20px rgba(0, 0, 0, .65);
+        background: linear-gradient(160deg, #142231 0%, #101820 52%, #111b26 100%);
+    }
+    .wayalong-admin-workspace > main,
+    .wayalong-admin-workspace > div > main {
+        position: relative;
+    }
+    .wayalong-admin-workspace main > header:first-child {
+        border: 1px solid var(--admin-border);
+        border-radius: 1.15rem;
+        background: linear-gradient(115deg, rgba(28, 91, 131, .09), rgba(255, 255, 255, .96) 66%);
+        padding: 1.5rem 1.75rem;
+        box-shadow: var(--admin-shadow);
+    }
+    .dark .wayalong-admin-workspace main > header:first-child {
+        background: linear-gradient(115deg, rgba(71, 137, 184, .18), rgba(20, 30, 41, .96) 70%);
+    }
+    .wayalong-admin-workspace main > header:first-child h1 {
+        font-weight: 700;
+        letter-spacing: -.035em;
+        line-height: 1.2;
+    }
+    .wayalong-admin-workspace main > header:first-child p { line-height: 1.6; }
+    .wayalong-admin-workspace main section.rounded-xl,
+    .wayalong-admin-workspace main div.rounded-xl.border.bg-card,
+    .wayalong-admin-workspace main form.rounded-xl.border,
+    .wayalong-admin-workspace main > div.rounded-xl.border {
+        border-color: var(--admin-border);
+        border-radius: 1rem;
+        box-shadow: var(--admin-shadow);
+        background-color: var(--card);
+    }
+    .wayalong-admin-workspace main :is(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+        min-height: 2.5rem;
+        border-color: var(--admin-border);
+        border-radius: .65rem;
+        transition: border-color .16s ease, box-shadow .16s ease;
+    }
+    .wayalong-admin-workspace main :is(input:not([type='checkbox']):not([type='radio']), select, textarea):focus-visible {
+        outline: 2px solid var(--admin-accent);
+        outline-offset: 1px;
+        border-color: var(--admin-accent);
+    }
+    .wayalong-admin-workspace main :is(button, a).rounded-md {
+        transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+    }
+    .wayalong-admin-workspace main :is(button, a).rounded-md:hover:not(:disabled) {
+        box-shadow: 0 3px 10px -7px rgba(15, 23, 42, .65);
+    }
+    .wayalong-admin-workspace main table { border-collapse: separate; border-spacing: 0; }
+    .wayalong-admin-workspace main thead { background-color: rgba(33, 93, 135, .065); }
+    .wayalong-admin-workspace main th {
+        font-size: .75rem;
+        font-weight: 700;
+        letter-spacing: .04em;
+        color: var(--foreground);
+    }
+    .wayalong-admin-workspace main tbody tr { transition: background-color .14s ease; }
+    .wayalong-admin-workspace main tbody tr:hover { background-color: rgba(39, 115, 167, .045); }
+    .wayalong-admin-workspace main :is(button, a):focus-visible {
+        outline: 2px solid var(--admin-accent);
+        outline-offset: 2px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .wayalong-admin-workspace main *,
+        .wayalong-admin-workspace main *::before,
+        .wayalong-admin-workspace main *::after { transition-duration: .01ms !important; }
+    }
+    @media (max-width: 640px) {
+        .wayalong-admin-workspace main > header:first-child { padding: 1rem; }
+    }
+}
+
+/* Shared WayAlong presentation system. Uses semantic tokens to support future
+   organization themes without changing permissions or page behavior. */
+@layer components {
+  .wayalong-workspace {
+    --wayalong-accent: #245f82;
+    --wayalong-line: #dce6ef;
+    --wayalong-elevation: 0 8px 28px -22px rgba(22, 52, 78, .38);
+    background: linear-gradient(160deg, #f3f7fb 0%, #f8fafc 55%, #f4f7fa 100%);
+    min-height: 100vh;
+  }
+  .dark .wayalong-workspace {
+    --wayalong-accent: #91c9f0;
+    --wayalong-line: #33485d;
+    --wayalong-elevation: 0 8px 28px -20px rgba(0, 0, 0, .65);
+    background: linear-gradient(160deg, #14212d 0%, #101820 60%, #121b25 100%);
+  }
+  /* Restrict shared styles to content sections, leaving sidebar, sheets and
+     dialogs on their own component tokens. */
+  .wayalong-workspace main > header:first-child,
+  .wayalong-workspace main > div > header:first-child,
+  .wayalong-page-intro {
+    border: 1px solid var(--wayalong-line);
+    border-radius: 1.125rem;
+    padding: 1.35rem 1.55rem;
+    background: linear-gradient(115deg, rgba(36, 95, 130, .07), var(--card) 70%);
+    box-shadow: var(--wayalong-elevation);
+  }
+  .dark .wayalong-workspace main > header:first-child,
+  .dark .wayalong-workspace main > div > header:first-child,
+  .dark .wayalong-page-intro { background: linear-gradient(115deg, rgba(75, 150, 199, .14), var(--card) 74%); }
+  .wayalong-workspace main h1 { font-weight: 720; letter-spacing: -.032em; line-height: 1.2; }
+  .wayalong-workspace main h2 { letter-spacing: -.022em; }
+  .wayalong-workspace main :is(section, article, form, div).rounded-xl.border,
+  .wayalong-workspace main :is(section, article, form, div).rounded-lg.border {
+    border-color: var(--wayalong-line);
+    background-color: var(--card);
+    box-shadow: var(--wayalong-elevation);
+  }
+  .wayalong-workspace main :is(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+    border-color: var(--wayalong-line);
+    border-radius: .65rem;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .wayalong-workspace main :is(input:not([type='checkbox']):not([type='radio']), select, textarea):focus-visible {
+    outline: 2px solid var(--wayalong-accent); outline-offset: 1px; border-color: var(--wayalong-accent);
+  }
+  .wayalong-workspace main :is(button, a):focus-visible { outline: 2px solid var(--wayalong-accent); outline-offset: 2px; }
+  .wayalong-workspace main table { border-collapse: separate; border-spacing: 0; }
+  .wayalong-workspace main thead { background-color: color-mix(in srgb, var(--wayalong-accent) 7%, var(--card)); }
+  .wayalong-workspace main th { font-size: .78rem; letter-spacing: .015em; font-weight: 650; }
+  .wayalong-workspace main tbody tr { transition: background-color .15s ease; }
+  .wayalong-workspace main tbody tr:hover { background-color: color-mix(in srgb, var(--wayalong-accent) 5%, transparent); }
+  .wayalong-workspace main :is(button, a).rounded-md { transition: background-color .15s ease, box-shadow .15s ease; }
+  .wayalong-workspace main :is(button, a).rounded-md:hover:not(:disabled) { box-shadow: 0 3px 12px -9px rgba(15, 45, 70, .5); }
+  .wayalong-workspace main nav[aria-label] { background-color: var(--card); border-color: var(--wayalong-line); box-shadow: var(--wayalong-elevation); }
+  .wayalong-empty-state { border-style: dashed; border-color: var(--wayalong-line); background: var(--card); }
+  .wayalong-message-card { transition: border-color .15s ease, box-shadow .15s ease; }
+  .wayalong-message-card:hover { box-shadow: 0 12px 28px -22px rgba(22, 52, 78, .55); }
+  .wayalong-auth-workspace {
+    background: radial-gradient(circle at 15% 10%, rgba(76, 144, 190, .15), transparent 42%),
+                radial-gradient(circle at 90% 90%, rgba(47, 103, 145, .1), transparent 45%),
+                var(--background);
+  }
+  .wayalong-auth-card {
+    padding: 2rem; border: 1px solid var(--border); border-radius: 1.5rem;
+    background: var(--card); box-shadow: 0 22px 60px -40px rgba(20, 54, 85, .5);
+  }
+  .wayalong-auth-card :is(input, button):focus-visible { outline-offset: 2px; }
+  @media (max-width: 640px) {
+    .wayalong-workspace main > header:first-child, .wayalong-workspace main > div > header:first-child, .wayalong-page-intro { padding: 1rem; }
+    .wayalong-auth-card { padding: 1.5rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wayalong-workspace main *, .wayalong-message-card { transition-duration: .01ms !important; }
+  }
+}

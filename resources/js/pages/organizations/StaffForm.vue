@@ -28,7 +28,7 @@ const invitationMode = ref(false);
 const matches = computed(() => (props.eligibleUsers ?? []).filter(u => `${u.name} ${u.email}`.toLowerCase().includes(userSearch.value.toLowerCase())));
 const chosenUser = computed(() => (props.eligibleUsers ?? []).find(u => u.id === selectedUserId.value));
 const roles = computed(() => [
-    { value: 'staff', name: 'Staff' }, { value: 'clinician', name: 'Clinician' },
+    { value: 'staff', name: 'Staff' }, { value: 'clinician', name: 'Clinician' }, { value: 'floor_staff', name: 'Floor Staff' }, { value: 'client_admin', name: 'Client Administrator' },
     { value: 'admin', name: 'Admin' },
     ...(props.isOwner ? [{ value: 'owner', name: 'Owner' }] : []), ...props.customRoles,
 ]);

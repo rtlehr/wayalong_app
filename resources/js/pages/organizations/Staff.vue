@@ -37,6 +37,7 @@ const staffColumns = [{ key: 'name', label: 'Name' }, { key: 'email', label: 'Em
 const roleOptions = [
     { value: 'staff', name: 'Staff' },
     { value: 'clinician', name: 'Clinician' },
+    { value: 'floor_staff', name: 'Floor Staff' }, { value: 'client_admin', name: 'Client Administrator' },
     { value: 'admin', name: 'Admin' },
     ...(props.isOwner ? [{ value: 'owner', name: 'Owner' }] : []),
     ...props.customRoles,

@@ -49,14 +49,14 @@ const focusSearch = async () => { await nextTick(); searchEl.value?.focus(); };
 
 <template>
     <Head title="Admin Command Center" />
-    <main class="mx-auto w-full max-w-6xl space-y-7 p-4 md:p-8">
-        <header class="space-y-2">
+    <main class="mx-auto w-full max-w-6xl space-y-8 p-4 md:p-8">
+        <header class="space-y-3">
             <p class="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">WayAlong · Administration</p>
-            <h1 class="text-3xl font-semibold tracking-tight">Admin Command Center</h1>
+            <h1 class="text-3xl font-bold tracking-tight md:text-4xl">Admin Command Center</h1>
             <p class="text-sm text-muted-foreground">Manage {{ organization.name }}. Search for a tool or browse an area below.</p>
         </header>
 
-        <div class="relative rounded-xl border bg-card p-2 shadow-sm">
+        <div class="relative rounded-2xl border border-sky-100 bg-card p-2 shadow-sm dark:border-slate-700">
             <Search class="pointer-events-none absolute left-5 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <input ref="searchEl" v-model="query" @input="selected = 0" type="search" aria-label="Search admin tools"
                 class="w-full rounded-lg bg-transparent py-3 pl-12 pr-20 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" placeholder="Search tools, tasks, settings…" />
@@ -65,10 +65,10 @@ const focusSearch = async () => { await nextTick(); searchEl.value?.focus(); };
         </div>
 
         <section aria-label="Organization snapshot" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div class="rounded-xl border bg-card p-4"><div class="flex items-center gap-2 text-sm text-muted-foreground"><Building2 class="size-4" /> Facilities</div><div class="mt-2 text-3xl font-semibold">{{ stats.facilities }}</div><p class="mt-1 text-xs text-muted-foreground">{{ stats.activeFacilities }} active</p></div>
-            <div class="rounded-xl border bg-card p-4"><div class="flex items-center gap-2 text-sm text-muted-foreground"><Users class="size-4" /> Staff memberships</div><div class="mt-2 text-3xl font-semibold">{{ stats.staff }}</div><p class="mt-1 text-xs text-muted-foreground">{{ stats.activeStaff }} active</p></div>
-            <div class="rounded-xl border bg-card p-4"><div class="flex items-center gap-2 text-sm text-muted-foreground"><ShieldCheck class="size-4" /> Custom roles</div><div class="mt-2 text-3xl font-semibold">{{ stats.customRoles }}</div><p class="mt-1 text-xs text-muted-foreground">Organization-defined roles</p></div>
-            <div class="rounded-xl border bg-card p-4"><div class="flex items-center gap-2 text-sm text-muted-foreground"><Clock3 class="size-4" /> Pending invitations</div><div class="mt-2 text-3xl font-semibold">{{ stats.pendingInvitations }}</div><p class="mt-1 text-xs text-muted-foreground">Unaccepted, unexpired</p></div>
+            <div class="rounded-2xl border border-slate-200/90 bg-card p-5 shadow-sm dark:border-slate-700"><div class="flex items-center gap-2 text-sm text-muted-foreground"><Building2 class="size-4" /> Facilities</div><div class="mt-3 text-3xl font-bold tracking-tight">{{ stats.facilities }}</div><p class="mt-1 text-xs text-muted-foreground">{{ stats.activeFacilities }} active</p></div>
+            <div class="rounded-2xl border border-slate-200/90 bg-card p-5 shadow-sm dark:border-slate-700"><div class="flex items-center gap-2 text-sm text-muted-foreground"><Users class="size-4" /> Staff memberships</div><div class="mt-3 text-3xl font-bold tracking-tight">{{ stats.staff }}</div><p class="mt-1 text-xs text-muted-foreground">{{ stats.activeStaff }} active</p></div>
+            <div class="rounded-2xl border border-slate-200/90 bg-card p-5 shadow-sm dark:border-slate-700"><div class="flex items-center gap-2 text-sm text-muted-foreground"><ShieldCheck class="size-4" /> Custom roles</div><div class="mt-3 text-3xl font-bold tracking-tight">{{ stats.customRoles }}</div><p class="mt-1 text-xs text-muted-foreground">Organization-defined roles</p></div>
+            <div class="rounded-2xl border border-slate-200/90 bg-card p-5 shadow-sm dark:border-slate-700"><div class="flex items-center gap-2 text-sm text-muted-foreground"><Clock3 class="size-4" /> Pending invitations</div><div class="mt-3 text-3xl font-bold tracking-tight">{{ stats.pendingInvitations }}</div><p class="mt-1 text-xs text-muted-foreground">Unaccepted, unexpired</p></div>
         </section>
 
         <section v-if="!query && favoriteTools.length" class="space-y-3" aria-label="Common access"><h2 class="text-lg font-semibold">Common access</h2><div class="flex flex-wrap gap-2"><Link v-for="tool in favoriteTools" :key="tool.key" :href="tool.href" @click="remember(tool)" class="rounded-full border px-4 py-2 text-sm hover:bg-accent">{{ tool.title }}</Link></div></section>
@@ -83,7 +83,7 @@ const focusSearch = async () => { await nextTick(); searchEl.value?.focus(); };
                 <div v-for="tool in filtered.filter(item => item.section === section)" :key="tool.key" class="relative">
                 <button type="button" class="absolute right-3 top-3 z-10 rounded-md border bg-background px-2 py-1 text-xs hover:bg-accent" :aria-label="favorites.includes(tool.key) ? `Remove ${tool.title} from common access` : `Add ${tool.title} to common access`" @click="toggleFavorite(tool)">{{ favorites.includes(tool.key) ? "★" : "☆" }}</button>
                 <Link :href="tool.href" @click="remember(tool)"
-                    class="group flex items-start justify-between gap-4 rounded-xl border bg-card p-5 pr-16 transition-colors hover:border-primary/50 hover:bg-accent/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    class="group flex min-h-32 items-start justify-between gap-4 rounded-2xl border border-slate-200/90 bg-card p-5 pr-16 shadow-sm transition-all hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:border-slate-700 dark:hover:border-sky-600"
                     :class="{ 'border-primary/60': query && filtered[selected]?.key === tool.key }">
                     <div class="space-y-1"><h3 class="font-semibold">{{ tool.title }}</h3><p class="text-sm text-muted-foreground">{{ tool.description }}</p></div><ArrowUpRight class="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
                 </Link>

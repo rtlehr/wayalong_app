@@ -35,7 +35,9 @@ it('enforces different permissions on separate facility assignments for one iden
     $permissions = app(FacilityPermissions::class);
 
     expect($permissions->allows($user, $clinical, FacilityPermissions::VIEW_CLIENTS))->toBeTrue()
-        ->and($permissions->allows($user, $clinical, FacilityPermissions::MANAGE_CLIENTS))->toBeTrue()
+        ->and($permissions->allows($user, $clinical, FacilityPermissions::VIEW_CLINICAL_CASELOAD))->toBeTrue()
+        ->and($permissions->allows($user, $clinical, FacilityPermissions::MANAGE_CLIENTS))->toBeFalse()
+        ->and($permissions->allows($user, $clinical, FacilityPermissions::MANAGE_ALERTS))->toBeTrue()
         ->and($permissions->allows($user, $support, FacilityPermissions::VIEW_STAFF))->toBeTrue()
         ->and($permissions->allows($user, $support, FacilityPermissions::VIEW_CLIENTS))->toBeFalse();
 
@@ -94,5 +96,10 @@ it('does not infer clinical permissions from organization owner status', functio
     $permissions = app(FacilityPermissions::class);
 
     expect($permissions->allows($owner, $facility, FacilityPermissions::VIEW_STAFF))->toBeTrue()
-        ->and($permissions->allows($owner, $facility, FacilityPermissions::VIEW_CLIENTS))->toBeFalse();
+        ->and($permissions->allows($owner, $facility, FacilityPermissions::VIEW_CLIENTS))->toBeTrue()
+        ->and($permissions->allows($owner, $facility, FacilityPermissions::MANAGE_CLIENTS))->toBeTrue()
+        ->and($permissions->allows($owner, $facility, FacilityPermissions::VIEW_CLINICAL_CASELOAD))->toBeFalse()
+        ->and($permissions->allows($owner, $facility, FacilityPermissions::MANAGE_ALERTS))->toBeFalse()
+        ->and($permissions->allows($owner, $facility, FacilityPermissions::VIEW_SHIFT_NOTES))->toBeFalse()
+        ->and($permissions->allows($owner, $facility, FacilityPermissions::WRITE_SHIFT_NOTES))->toBeFalse();
 });

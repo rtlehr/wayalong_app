@@ -1,0 +1,68 @@
+WAYALONG — MY CLIENTS DASHBOARD DEMO
+====================================
+
+PURPOSE
+Use five fictional client records to verify the new personal dashboard for:
+  dev.ridge.clinician@wayalong.test
+
+BEFORE YOU START
+* Back up your local database.
+* Use only your local development environment (APP_ENV=local) or testing environment.
+* The Blue Ridge development organization, clinician account, and BR-TREAT facility must already exist.
+* The seeder does NOT run automatically in DatabaseSeeder.
+* Never run demo seeders against production data.
+
+INSTALL
+1. Unzip the package into C:\Development\WayAlong\_wayalong_app, preserving paths.
+2. Open PowerShell in that project directory.
+3. If the usual development sample data is missing, first run:
+      php artisan db:seed --class=DevelopmentSeeder
+   CAUTION: DevelopmentSeeder manages development sample users and facilities; skip it if the account already exists.
+4. Run:
+      php artisan db:seed --class=RidgeClinicianDashboardSeeder
+5. No new migration or npm build is required for the seeder itself.
+
+LOGIN
+* Visit the application login screen (or Blue Ridge organization login URL).
+* Log in with: dev.ridge.clinician@wayalong.test
+* Use your existing development-seed password. The seed helper's default (if you never set WAYALONG_SEED_PASSWORD) is:
+      WayAlong-Local-Only-2026!
+* If prompted to choose a workspace, select Blue Ridge Behavioral Health.
+* The existing account must remain active and clinically assigned to Blue Ridge Treatment Center.
+
+EXPECTED MY CLIENTS RESULTS
+Shown (three active, assigned):
+  UIUX DEMO Avery Assigned Active
+  UIUX DEMO Blake Assigned Active
+  UIUX DEMO Cameron Assigned Active
+
+Not shown:
+  UIUX DEMO Drew Not Assigned        — active, but NOT assigned to this clinician
+  UIUX DEMO Ellis Discharged         — assigned, but discharged
+
+BROWSER WALKTHROUGH
+[ ] Open My WayAlong / Dashboard and verify My Clients is first.
+[ ] Confirm exactly these three UIUX DEMO active-assigned clients appear (other preexisting assigned clients may also appear).
+[ ] Confirm UIUX DEMO Drew and UIUX DEMO Ellis do NOT appear in My Clients.
+[ ] Click View client for Avery; confirm it opens Avery's client record.
+[ ] Return to Dashboard, click Contact information for Blake; confirm the client contact section opens.
+[ ] Verify demo contact phone entries on client profiles: 555-0101, 555-0102, 555-0103 (where contact display is supported).
+[ ] Check the selected organization is Blue Ridge Behavioral Health and the clinic is an authorized facility.
+[ ] Sign in as dev.ridge.owner@wayalong.test and confirm Owner alone does not reveal clinical My Clients.
+[ ] Confirm there are no invented medical / behavioral alerts. Structured alerts will be built in a later phase.
+
+OPTIONAL AUTOMATED TESTS
+  php artisan test tests/Feature/Authorization/MyClientsDashboardTest.php
+  php artisan test
+
+RE-RUN SAFETY
+* Rerunning the seeder will not add duplicate client records, enrollments, or clinician assignments.
+* It will not change an existing demo enrollment's status after you modify it manually.
+* It will not delete any data. This package does not include an automatic cleanup routine.
+* Records use the UIUX DEMO prefix to distinguish them from real clients.
+
+TROUBLESHOOTING
+* 'Run DevelopmentSeeder first': Verify the preexisting dev.ridge.clinician@wayalong.test account, Blue Ridge org, and BR-TREAT facility.
+* No My Clients list: Confirm the clinician has an active membership and facility role 'clinician', then select Blue Ridge organization.
+* Other assigned clients also show: Normal; the list includes all real assigned active clients.
+* Always use fictional contact details; never use actual client health data for demo testing.

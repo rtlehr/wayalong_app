@@ -15,7 +15,7 @@ uses(RefreshDatabase::class);
 
 beforeEach(function () { $this->withoutVite(); });
 
-function clientFacility(Organization $organization, User $user, string $role = 'clinician'): Facility
+function clientFacility(Organization $organization, User $user, string $role = 'client_admin'): Facility
 {
     $facility = Facility::factory()->create(['organization_id' => $organization->id]);
     DB::table('organization_staff_facilities')->insert([
@@ -43,7 +43,7 @@ it('enrolls a youth without an email address or login account', function () {
             'enrolled_at' => today()->toDateString(),
         ])->assertRedirect(route('facility.clients.index'));
 
-    $person = Person::where('first_name', 'Jordan')->firstOrFail();
+    $person = Person::where('person_type', 'client')->get()->first(fn (Person $person) => $person->first_name === 'Jordan') ?? throw new RuntimeException('Expected newly enrolled client');
     expect($person->user_id)->toBeNull()
         ->and($person->facility_id)->toBe($facility->id)
         ->and($person->person_type)->toBe('client');
@@ -86,7 +86,7 @@ it('denies staff without client permissions and denies unassigned facilities', f
         ->assertForbidden();
     $this->withSession([FacilityContext::SESSION_KEY => $notAssigned->id])
         ->get(route('facility.clients.index'))->assertForbidden();
-    $this->assertDatabaseMissing('people', ['first_name' => 'Blocked']);
+    expect(Person::query()->get()->contains(fn (Person $person) => $person->first_name === 'Blocked'))->toBeFalse();
 });
 
 it('prevents changing enrollment status outside the selected facility', function () {
@@ -148,4 +148,75 @@ it('paginates client directory records without exposing another facility', funct
         ->get(route('facility.clients.index', ['search' => 'Outside']))
         ->assertOk()->assertInertia(fn (Assert $page) => $page
             ->component('facilities/Clients')->has('clients.data', 0)->etc());
+});
+
+
+it('limits clinician directory and profile access to assigned clients and blocks administrative writes', function () {
+    $organization = Organization::factory()->create();
+    $clinician = User::factory()->create();
+    $organization->users()->attach($clinician, ['role' => 'staff', 'status' => 'active']);
+    $this->actingAs($clinician)->withSession([OrganizationContext::SESSION_KEY => $organization->id]);
+    $facility = clientFacility($organization, $clinician, 'clinician');
+    $assigned = ClientEnrollment::create([
+        'person_id' => Person::create(['first_name' => 'Assigned', 'last_name' => 'Youth', 'person_type' => 'client', 'facility_id' => $facility->id])->id,
+        'facility_id' => $facility->id, 'enrolled_at' => today()->toDateString(),
+    ]);
+    $unassigned = ClientEnrollment::create([
+        'person_id' => Person::create(['first_name' => 'Unassigned', 'last_name' => 'Youth', 'person_type' => 'client', 'facility_id' => $facility->id])->id,
+        'facility_id' => $facility->id, 'enrolled_at' => today()->toDateString(),
+    ]);
+    DB::table('client_staff_assignments')->insert([
+        'organization_id' => $organization->id, 'client_enrollment_id' => $assigned->id,
+        'user_id' => $clinician->id, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    $this->withSession([FacilityContext::SESSION_KEY => $facility->id]);
+    $this->get(route('facility.clients.index'))->assertOk()->assertInertia(fn (Assert $page) => $page
+        ->where('canManage', false)->where('clients.total', 1)
+        ->where('clients.data.0.id', $assigned->id)->etc());
+    $this->get(route('facility.clients.index', ['search' => 'Unassigned']))->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->where('clients.total', 0)->etc());
+    $this->get(route('facility.clients.show', $assigned))->assertOk();
+    $this->get(route('facility.clients.show', $unassigned))->assertForbidden();
+    $this->get(route('facility.clients.create'))->assertForbidden();
+    $this->get(route('facility.clients.edit', $assigned))->assertForbidden();
+    $this->post(route('facility.clients.store'), [
+        'first_name' => 'Should', 'last_name' => 'Fail', 'enrolled_at' => today()->toDateString(),
+    ])->assertForbidden();
+    $this->patch(route('facility.clients.profile.update', $assigned), [
+        'first_name' => 'Should', 'last_name' => 'Fail',
+    ])->assertForbidden();
+    $this->patch(route('facility.clients.update', $assigned), ['status' => 'discharged'])->assertForbidden();
+});
+
+it('lets a facility-assigned owner manage client administration without granting treatment rights', function () {
+    $organization = Organization::factory()->create();
+    $owner = User::factory()->create();
+    $organization->users()->attach($owner, ['role' => 'owner', 'status' => 'active']);
+    $this->actingAs($owner)->withSession([OrganizationContext::SESSION_KEY => $organization->id]);
+    $facility = clientFacility($organization, $owner, 'owner');
+    $otherFacility = Facility::factory()->create(['organization_id' => $organization->id]);
+
+    $client = ClientEnrollment::create([
+        'person_id' => Person::create([
+            'first_name' => 'Administrative', 'last_name' => 'Client',
+            'person_type' => 'client', 'facility_id' => $facility->id,
+        ])->id,
+        'facility_id' => $facility->id, 'enrolled_at' => today()->toDateString(),
+    ]);
+    $otherClient = ClientEnrollment::create([
+        'person_id' => Person::create([
+            'first_name' => 'Other', 'last_name' => 'Facility',
+            'person_type' => 'client', 'facility_id' => $otherFacility->id,
+        ])->id,
+        'facility_id' => $otherFacility->id, 'enrolled_at' => today()->toDateString(),
+    ]);
+
+    $this->withSession([FacilityContext::SESSION_KEY => $facility->id]);
+    $this->get(route('facility.clients.index'))->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->where('canManage', true)->etc());
+    $this->get(route('facility.clients.show', $client))->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->where('canManage', true)->etc());
+    $this->get(route('facility.clients.edit', $client))->assertOk();
+    $this->get(route('facility.clients.show', $otherClient))->assertNotFound();
+    $this->get(route('facility.clients.treatment.overview', $client))->assertForbidden();
 });

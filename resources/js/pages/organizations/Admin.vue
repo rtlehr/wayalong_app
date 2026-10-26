@@ -72,6 +72,7 @@ const openFacility = (item?: Facility) => { if (item) edit(item); else clear(); 
       </header>
         <section v-if="pageMode === 'settings'" id="organization-settings" class="space-y-4 rounded-xl border bg-card p-5 shadow-sm">
             <h2 class="text-lg font-semibold">Organization settings</h2>
+            <a href="/organization/admin/insurance-providers" class="inline-flex rounded-md border px-4 py-2 text-sm hover:bg-accent">Manage Insurance Providers →</a>
             <form class="grid gap-4 md:grid-cols-2" @submit.prevent="settings.patch(`${base}/settings`, { preserveScroll: true })">
                 <label class="grid gap-1 text-sm">Name<input v-model="settings.name" required maxlength="255" class="rounded-md border bg-background p-2" /><span class="text-red-600">{{ settings.errors.name }}</span></label>
                 <label class="grid gap-1 text-sm">Timezone<input v-model="settings.timezone" required placeholder="America/New_York" class="rounded-md border bg-background p-2" /><span class="text-red-600">{{ settings.errors.timezone }}</span></label>
@@ -113,6 +114,7 @@ const openFacility = (item?: Facility) => { if (item) edit(item); else clear(); 
                 <label class="grid gap-1 text-sm">Role name<input v-model="newRole.name" required maxlength="100" class="rounded-md border bg-background p-2" /><span class="text-red-600">{{ newRole.errors.name }}</span></label>
                 <label class="flex items-center gap-2 text-sm"><input v-model="newRole.permissions" type="checkbox" value="facilities.manage" />Manage facilities</label>
                 <label class="flex items-center gap-2 text-sm"><input v-model="newRole.permissions" type="checkbox" value="members.view" />View members</label>
+                <label class="flex items-center gap-2 text-sm"><input v-model="newRole.permissions" type="checkbox" value="security.audit.view" />View security audit (sensitive metadata)</label>
                 <button class="rounded-md bg-primary px-4 py-2 text-primary-foreground" :disabled="newRole.processing">Create role</button>
                 <span class="text-red-600">{{ newRole.errors.permissions }}</span>
             </form>
@@ -121,6 +123,7 @@ const openFacility = (item?: Facility) => { if (item) edit(item); else clear(); 
                     <input v-model="roleEdits[role.id].name" :aria-label="`Name for ${role.name}`" class="rounded-md border bg-background p-2" />
                     <label class="flex items-center gap-2 text-sm"><input v-model="roleEdits[role.id].permissions" type="checkbox" value="facilities.manage" />Manage facilities</label>
                     <label class="flex items-center gap-2 text-sm"><input v-model="roleEdits[role.id].permissions" type="checkbox" value="members.view" />View members</label>
+                    <label class="flex items-center gap-2 text-sm"><input v-model="roleEdits[role.id].permissions" type="checkbox" value="security.audit.view" />View security audit (sensitive metadata)</label>
                     <button class="rounded-md border px-3 py-2" @click="updateRole(role.id)">Save</button>
                     <button class="rounded-md border px-3 py-2 text-red-600" @click="deleteRole(role.id)">Delete</button>
                 </template>
@@ -137,7 +140,7 @@ const openFacility = (item?: Facility) => { if (item) edit(item); else clear(); 
                 </label>
                 <label class="grid gap-1 text-sm">Invitation role
                     <select v-model="invitation.role" class="rounded-md border bg-background p-2">
-                        <option v-for="role in ['staff', 'clinician', 'admin', 'owner']" :key="role" :value="role">{{ role }}</option>
+                        <option v-for="role in ['staff', 'floor_staff', 'clinician', 'admin', 'owner']" :key="role" :value="role">{{ role }}</option>
 
                     </select>
                     <span class="text-red-600">{{ invitation.errors.role }}</span>
@@ -151,7 +154,7 @@ const openFacility = (item?: Facility) => { if (item) edit(item); else clear(); 
                 </label>
                 <label class="grid gap-1 text-sm">Role
                     <select v-model="newMember.role" class="rounded-md border bg-background p-2">
-                        <option v-for="role in ['staff', 'clinician', 'admin', 'owner']" :key="role" :value="role">{{ role }}</option>
+                        <option v-for="role in ['staff', 'floor_staff', 'clinician', 'admin', 'owner']" :key="role" :value="role">{{ role }}</option>
                         <option v-for="role in customRoles" :key="role.id" :value="role.value">{{ role.name }}</option>
                     </select>
                     <span class="text-red-600">{{ newMember.errors.role }}</span>
@@ -162,7 +165,7 @@ const openFacility = (item?: Facility) => { if (item) edit(item); else clear(); 
                 <div><strong>{{ member.name }}</strong><div class="text-muted-foreground">{{ member.email }}</div></div>
                 <div v-if="memberEdits[member.id]" class="flex flex-wrap items-center gap-2">
                     <select v-model="memberEdits[member.id].role" :aria-label="`Role for ${member.name}`" class="rounded-md border bg-background p-2">
-                        <option v-for="role in ['staff', 'clinician', 'admin', 'owner']" :key="role" :value="role">{{ role }}</option>
+                        <option v-for="role in ['staff', 'floor_staff', 'clinician', 'admin', 'owner']" :key="role" :value="role">{{ role }}</option>
                         <option v-for="role in customRoles" :key="role.id" :value="role.value">{{ role.name }}</option>
                     </select>
                     <select v-model="memberEdits[member.id].status" :aria-label="`Membership status for ${member.name}`" class="rounded-md border bg-background p-2">

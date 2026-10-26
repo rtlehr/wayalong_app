@@ -1,0 +1,125 @@
+WAYALONG — INSURANCE DEMO DATA / BROWSER TESTING
+==============================================
+
+This package contains fictional demonstration data ONLY. No real insurance
+member numbers, patients, or financial transactions are used.
+
+IMPORTANT SAFETY NOTES
+----------------------
+* Run ONLY on your local development installation, never production.
+* Take a backup of your local database before loading test data.
+* This seeder does NOT delete data or run migrate:fresh.
+* It automatically picks an ACTIVE organization with an active OWNER who is
+  assigned to an ACTIVE facility; it prefers "Blue Ridge Behavioral Health"
+  when available. It prints the selected organization, facility and owner email.
+* If you log in with a different organization owner, you might not see the
+  sample clients. Use the owner email printed at the end of the seed run.
+* The seeder creates five fictional client records with first names starting
+  "DEMO". Run it twice to verify it does NOT duplicate the examples.
+* If you edit a demo record after seeding, rerunning does NOT reset it.
+* Don't use this against a database with real patients or real financial data.
+
+INSTALL / SEED
+--------------
+1. Extract the ZIP to the WayAlong project root, preserving paths.
+   One new PHP file will be installed at:
+   database/seeders/InsuranceDemoSeeder.php
+2. From PowerShell, at C:\Development\WayAlong\_wayalong_app, run:
+
+   php artisan migrate
+   php artisan db:seed --class=InsuranceDemoSeeder
+
+3. Look for the printed organization, facility and owner login email.
+   If you see "No active organization owner assigned ...", seed your normal
+   development sample data or assign an existing owner to an active facility,
+   then try the insurance seeder again. Do NOT use migrate:fresh.
+4. Log into WayAlong using that organization's owner account.
+5. Navigate Admin Command Center > Finance > Client Billing & Accounts.
+   Look for clients whose FIRST NAME begins "DEMO".
+
+SAMPLE CLIENTS AND EXPECTATIONS
+-------------------------------
+DEMO Reconciled Fully Matched
+  Charge             $500.00
+  Insurer paid       $300.00
+  Client paid        $100.00
+  Adjustment         $100.00
+  Outstanding          $0.00
+  Claim approved; reported insurer paid $300.00; allowed $400.00;
+  patient responsibility $100.00. Expected: "Matches ledger".
+
+DEMO Mismatch Payment Review
+  Charge             $800.00
+  Insurer paid       $350.00 (reported by insurer: $500.00)
+  Client paid         $50.00
+  Adjustment         $100.00
+  Outstanding        $300.00
+  Claim approved; allowed $700.00; patient responsibility $200.00.
+  Expected: "Needs review" (insurer payment $150.00 short).
+
+DEMO Pending Claim In Process
+  Charge             $350.00
+  Payments             $0.00
+  Outstanding        $350.00
+  Claim pending and policy verification pending.
+  Expected: awaiting adjudication / not yet ready to reconcile.
+
+DEMO Coverage Expiring Soon
+  Charge             $225.00
+  Outstanding        $225.00
+  Policy ends 8 days from the day you run the seeder.
+  Claim is Draft. Expected: approaching-expiry indicator in Insurance.
+
+DEMO Reversed Payment Correction
+  Charge             $200.00
+  Insurer paid       $100.00
+  Client payment      $50.00 (reversed by -$50.00)
+  Adjustment          $50.00
+  Outstanding         $50.00
+  Approved claim: allowed $150.00, reported insurer paid $100.00,
+  patient responsibility $50.00. Expected: ledger shows original client
+  payment AND its reversal with the reversal reason; review the resulting
+  client balance.
+
+MANUAL BROWSER WALKTHROUGH
+--------------------------
+[ ] 1. Open Admin Command Center > Client Billing & Accounts.
+       Confirm all 5 DEMO clients are shown; open each one.
+[ ] 2. Open Reconciled > Overview. Check $500 charge, $400 net paid +
+       $100 adjustment, and $0 outstanding.
+[ ] 3. Open Reconciled > Insurance Claims. Check adjudication, status
+       history, adjustment ledger and "Matches ledger" review result.
+[ ] 4. Open Mismatch > Insurance Claims. Confirm "Needs review" and the
+       $150 reported-versus-recorded insurer payment discrepancy.
+[ ] 5. Open Pending > Insurance Claims. Confirm Pending status, status
+       history, and no completed reconciliation.
+[ ] 6. Open Expiring Soon in the clinical client profile > Insurance
+       (using a role with clinical access). Confirm expiry warning.
+       An owner without clinical access may not see the clinical directory;
+       this is expected and should not be bypassed.
+[ ] 7. Open Reversed > Payment Ledger. Confirm $50 original client
+       payment, separate -$50 reversal, and "DEMO correction" reason.
+[ ] 8. In Reconciled > Charges, confirm $0 remaining; do NOT make
+       unnecessary edits to the seed examples.
+[ ] 9. Try creating a NEW manual test charge in a DEMO client's Charges
+       section, then reverse it with a reason. Confirm both transactions
+       remain in the history. This changes only the chosen demo client.
+[ ] 10. If you need to validate organization/facility isolation, log in as a
+        user NOT authorized for the seeded facility; billing records should
+        not be accessible through that account.
+
+AUTOMATED TESTS (optional)
+--------------------------
+   php artisan test
+   npm run build
+
+No new Pest tests or UI changes are included in this seed-only ZIP. Your
+existing test baseline is unaffected by adding the seeder file.
+
+CLEANUP
+-------
+The seeder intentionally provides NO automatic purge: financial and claim
+records have linked history, so blind deletion is dangerous. Leave the
+fictional DEMO entries in local development, or remove them only from a
+separate disposable development database after taking a backup. Never run
+migrate:fresh on your normal WayAlong database simply to clear demo entries.

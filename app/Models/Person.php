@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Casts\EncryptedBirthDate;
+use App\Support\PersonNameSearch;
 use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,7 +17,16 @@ class Person extends Model
 
     protected function casts(): array
     {
-        return ['date_of_birth' => 'date'];
+        return ['first_name' => 'encrypted', 'last_name' => 'encrypted', 'date_of_birth' => EncryptedBirthDate::class, 'notes' => 'encrypted'];
+    }
+
+    protected static function booted(): void
+    {
+        static::saved(function (self $person): void {
+            if ($person->wasRecentlyCreated || $person->wasChanged(['first_name', 'last_name'])) {
+                PersonNameSearch::sync((int) $person->id, (int) $person->organization_id, $person->first_name, $person->last_name);
+            }
+        });
     }
 
     public function facility(): BelongsTo

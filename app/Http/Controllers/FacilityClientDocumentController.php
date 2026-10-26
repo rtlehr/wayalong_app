@@ -6,6 +6,7 @@ use App\Models\ClientEnrollment;
 use App\Models\Document;
 use App\Models\DocumentVersion;
 use App\Support\DocumentManager;
+use App\Support\EncryptedDocumentStorage;
 use App\Support\FacilityContext;
 use App\Support\FacilityPermissions;
 use App\Support\OrganizationContext;
@@ -25,6 +26,13 @@ class FacilityClientDocumentController extends Controller
             (int) $enrollment->organization_id === (int) $facility->organization_id &&
             (int) $enrollment->facility_id === (int) $facility->id &&
             $permissions->allows($request->user(), $facility, $permission), 403);
+        if ($permission === FacilityPermissions::VIEW_CLIENTS
+            && ! $permissions->allows($request->user(), $facility, FacilityPermissions::MANAGE_CLIENTS)) {
+            abort_unless(\Illuminate\Support\Facades\DB::table('client_staff_assignments')
+                ->where('organization_id', $facility->organization_id)
+                ->where('client_enrollment_id', $enrollment->id)
+                ->where('user_id', $request->user()->id)->exists(), 403);
+        }
     }
 
     public function store(Request $request, ClientEnrollment $enrollment, OrganizationContext $organizations, FacilityContext $facilities, FacilityPermissions $permissions, DocumentManager $documents): RedirectResponse
@@ -60,7 +68,7 @@ class FacilityClientDocumentController extends Controller
             'created_at' => now(),
         ]);
 
-        return Storage::disk('local')->download($document->storage_path, $document->original_filename);
+        return app(EncryptedDocumentStorage::class)->download($document->storage_path, $document->original_filename);
     }
     public function replace(Request $request, ClientEnrollment $enrollment, Document $document, OrganizationContext $organizations, FacilityContext $facilities, FacilityPermissions $permissions, DocumentManager $documents): RedirectResponse
     {
@@ -92,7 +100,7 @@ class FacilityClientDocumentController extends Controller
             'created_at' => now(),
         ]);
 
-        return Storage::disk('local')->download($version->storage_path, $version->original_filename);
+        return app(EncryptedDocumentStorage::class)->download($version->storage_path, $version->original_filename);
     }
 
     private function authorizeDocumentAttachment(ClientEnrollment $enrollment, Document $document): void

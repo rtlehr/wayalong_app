@@ -6,6 +6,8 @@ use App\Models\Organization;
 use App\Models\Person;
 use App\Support\OrganizationContext;
 use App\Support\OrganizationPermissions;
+use App\Support\PersonNameSearch;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -33,9 +35,19 @@ class OrganizationPersonController extends Controller
         $organization = $this->organization($request, $context, $permissions);
         $search = trim((string) $request->query('search', ''));
         abort_if(mb_strlen($search) > 100, 422);
-        $people = Person::query()->with('facility:id,name')
-            ->when($search !== '', fn ($q) => $q->where(fn ($inner) => $inner->where('first_name', 'like', '%'.$search.'%')->orWhere('last_name', 'like', '%'.$search.'%')))
-            ->orderBy('last_name')->orderBy('first_name')->paginate(15)->withQueryString();
+        $query = Person::query()->with('facility:id,name');
+        if ($search !== '') {
+            PersonNameSearch::constrain($query, $search, (int) $organization->id);
+        }
+        // Sort only after authorization and decryption; encrypted database values have no useful order.
+        $sorted = $query->get()->filter(fn (Person $person) => $search === ''
+            || str_contains(mb_strtolower($person->first_name), mb_strtolower($search))
+            || str_contains(mb_strtolower($person->last_name), mb_strtolower($search)))
+            ->sortBy(fn (Person $person) => mb_strtolower($person->last_name.' '.$person->first_name))->values();
+        $page = LengthAwarePaginator::resolveCurrentPage();
+        $people = new LengthAwarePaginator($sorted->forPage($page, 15)->values(), $sorted->count(), 15, $page, [
+            'path' => $request->url(), 'query' => $request->query(),
+        ]);
 
         return Inertia::render('organizations/People', ['organization' => $organization->only('id', 'name'), 'people' => $people, 'search' => $search]);
     }

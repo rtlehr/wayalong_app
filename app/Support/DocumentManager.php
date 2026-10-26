@@ -38,7 +38,7 @@ final class DocumentManager
         // All uploads remain on a non-public disk. A random server-generated name
         // prevents user filenames from becoming paths or URLs.
         $disk = 'local';
-        $path = $file->store('wayalong-documents/'.$organizationId, $disk);
+        $path = app(EncryptedDocumentStorage::class)->store($file, $organizationId);
         if ($path === false) {
             throw ValidationException::withMessages(['file' => 'The file could not be stored.']);
         }
@@ -73,7 +73,7 @@ final class DocumentManager
     public function replace(Document $document, UploadedFile $file, User $uploader, string $notes = ''): Document
     {
         $disk = 'local';
-        $path = $file->store('wayalong-documents/'.$document->organization_id, $disk);
+        $path = app(EncryptedDocumentStorage::class)->store($file, (int) $document->organization_id);
         if ($path === false) {
             throw ValidationException::withMessages(['file' => 'The replacement could not be stored.']);
         }

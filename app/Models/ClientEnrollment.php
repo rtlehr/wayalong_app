@@ -17,6 +17,26 @@ class ClientEnrollment extends Model
         return ['enrolled_at' => 'date', 'discharged_at' => 'date'];
     }
 
+    public function shiftNotes(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(ClientShiftNote::class, 'client_enrollment_id');
+    }
+
+    public function latestShiftNote(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ClientShiftNote::class, 'client_enrollment_id')->latestOfMany();
+    }
+
+    public function alertHistory(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(ClientAlert::class, 'client_enrollment_id');
+    }
+
+    public function activeAlerts(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(ClientAlert::class, 'client_enrollment_id')->whereNull('resolved_at');
+    }
+
     public function person(): BelongsTo
     {
         return $this->belongsTo(Person::class);

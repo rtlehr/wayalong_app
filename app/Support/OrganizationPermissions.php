@@ -16,16 +16,19 @@ final class OrganizationPermissions
     public const MANAGE_FACILITIES = 'facilities.manage';
     public const VIEW_MEMBERS = 'members.view';
     public const MANAGE_MEMBERS = 'members.manage';
+    public const VIEW_SECURITY_AUDIT = 'security.audit.view';
 
     /** @var array<string, list<string>> */
     private const ROLE_PERMISSIONS = [
         'owner' => [self::MANAGE_ORGANIZATION, self::MANAGE_FACILITIES, self::VIEW_MEMBERS, self::MANAGE_MEMBERS],
         'admin' => [self::MANAGE_ORGANIZATION, self::MANAGE_FACILITIES, self::VIEW_MEMBERS, self::MANAGE_MEMBERS],
         'clinician' => [],
+        'floor_staff' => [],
+        'client_admin' => [],
         'staff' => [],
     ];
 
-    public const CUSTOM_ROLE_PERMISSIONS = [self::MANAGE_FACILITIES, self::VIEW_MEMBERS];
+    public const CUSTOM_ROLE_PERMISSIONS = [self::MANAGE_FACILITIES, self::VIEW_MEMBERS, self::VIEW_SECURITY_AUDIT];
 
     public function validRole(Organization $organization, string $role): bool
     {

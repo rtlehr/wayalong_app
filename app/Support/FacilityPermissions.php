@@ -14,11 +14,18 @@ final class FacilityPermissions
 {
     public const VIEW_STAFF = 'facility.staff.view';
     public const VIEW_CLIENTS = 'facility.clients.view';
+    public const VIEW_CLINICAL_CASELOAD = 'facility.clients.clinical_caseload.view';
     public const MANAGE_CLIENTS = 'facility.clients.manage';
+    public const MANAGE_ALERTS = 'facility.alerts.manage';
+    public const VIEW_SHIFT_NOTES = 'facility.shift_notes.view';
+    public const WRITE_SHIFT_NOTES = 'facility.shift_notes.write';
+    public const ACK_SHIFT_NOTES = 'facility.shift_notes.acknowledge';
 
     /** @var array<string, list<string>> */
     private const ROLE_PERMISSIONS = [
-        'clinician' => [self::VIEW_STAFF, self::VIEW_CLIENTS, self::MANAGE_CLIENTS],
+        'clinician' => [self::VIEW_STAFF, self::VIEW_CLIENTS, self::VIEW_CLINICAL_CASELOAD, self::MANAGE_ALERTS, self::VIEW_SHIFT_NOTES, self::WRITE_SHIFT_NOTES, self::ACK_SHIFT_NOTES],
+        'client_admin' => [self::VIEW_STAFF, self::VIEW_CLIENTS, self::MANAGE_CLIENTS],
+        'floor_staff' => [self::VIEW_CLIENTS, self::VIEW_CLINICAL_CASELOAD, self::VIEW_SHIFT_NOTES, self::WRITE_SHIFT_NOTES, self::ACK_SHIFT_NOTES],
         'staff' => [self::VIEW_STAFF],
     ];
 
@@ -60,10 +67,11 @@ final class FacilityPermissions
             return false;
         }
 
-        // Administrators manage facilities across their organization, but are not
-        // silently given access to clinical records by an organization-wide title.
+        // An active, explicitly facility-assigned owner/admin can manage client
+        // administration. This does not grant alert, shift-note, or other
+        // treatment permissions without a separate clinical assignment.
         if (in_array($role, ['owner', 'admin'], true)) {
-            return $permission === self::VIEW_STAFF;
+            return in_array($permission, [self::VIEW_STAFF, self::VIEW_CLIENTS, self::MANAGE_CLIENTS], true);
         }
 
         return in_array($permission, self::ROLE_PERMISSIONS[$role] ?? [], true);

@@ -25,7 +25,7 @@ class OrganizationInvitationController extends Controller
     {
         $organization = $context->current($request);
         abort_unless($organization && $permissions->allows($request->user(), $organization, OrganizationPermissions::MANAGE_MEMBERS), 403);
-        $data = $request->validate(['email' => ['required', 'email', 'max:255'], 'role' => ['required', Rule::in(['owner', 'admin', 'clinician', 'staff'])], 'facility_id' => ['nullable', 'integer', Rule::exists('facilities', 'id')->where('organization_id', $organization->id)->where('status', 'active')]]);
+        $data = $request->validate(['email' => ['required', 'email', 'max:255'], 'role' => ['required', Rule::in(['owner', 'admin', 'clinician', 'floor_staff', 'client_admin', 'staff'])], 'facility_id' => ['nullable', 'integer', Rule::exists('facilities', 'id')->where('organization_id', $organization->id)->where('status', 'active')]]);
         $email = Str::lower(trim($data['email']));
         if ($data['role'] === 'owner') {
             abort_unless($organization->users()->whereKey($request->user()->id)->wherePivot('role', 'owner')->exists(), 403);

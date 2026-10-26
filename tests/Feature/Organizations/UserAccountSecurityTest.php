@@ -32,7 +32,17 @@ it('stores multiple contact methods and keeps their details within the shared us
         ],
     ])->assertSessionHasNoErrors();
     expect(\App\Models\OrganizationUserProfile::where('organization_id', $organization->id)->where('user_id', $person->id)->firstOrFail()->contactMethods()->count())->toBe(4);
-    $this->assertDatabaseHas('contact_methods', ['contactable_type' => \App\Models\OrganizationUserProfile::class, 'kind' => 'address', 'line_1' => '100 Main St']);
+    $profile = \App\Models\OrganizationUserProfile::where('organization_id', $organization->id)
+        ->where('user_id', $person->id)->firstOrFail();
+    $address = $profile->contactMethods()->where('kind', 'address')->firstOrFail();
+    expect($address->line_1)->toBe('100 Main St');
+    expect($address->city)->toBe('Winchester');
+    expect($address->state)->toBe('VA');
+
+    $stored = \Illuminate\Support\Facades\DB::table('contact_methods')->where('id', $address->id)->first();
+    expect($stored->line_1)->not->toBe('100 Main St');
+    expect($stored->city)->not->toBe('Winchester');
+    expect($stored->state)->not->toBe('VA');
     expect($person->fresh()->email)->toBe($person->email);
 });
 

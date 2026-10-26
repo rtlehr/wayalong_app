@@ -21,7 +21,7 @@ function profileSetup(): array
     $org->users()->attach($user, ['role' => 'staff', 'status' => 'active']);
     test()->actingAs($user)->withSession([OrganizationContext::SESSION_KEY => $org->id]);
     $facility = Facility::factory()->create(['organization_id' => $org->id]);
-    DB::table('organization_staff_facilities')->insert(['organization_id' => $org->id, 'facility_id' => $facility->id, 'user_id' => $user->id, 'role' => 'clinician', 'created_at' => now(), 'updated_at' => now()]);
+    DB::table('organization_staff_facilities')->insert(['organization_id' => $org->id, 'facility_id' => $facility->id, 'user_id' => $user->id, 'role' => 'client_admin', 'created_at' => now(), 'updated_at' => now()]);
     test()->withSession([FacilityContext::SESSION_KEY => $facility->id]);
     $person = Person::create(['first_name' => 'Youth', 'last_name' => 'Client', 'person_type' => 'client', 'facility_id' => $facility->id]);
     $enrollment = ClientEnrollment::create(['person_id' => $person->id, 'facility_id' => $facility->id, 'enrolled_at' => today()->toDateString()]);
@@ -110,7 +110,7 @@ it('lets an authorized clinician create a guardian without an email and links th
         'is_emergency_contact' => true, 'phone' => '555-555-0188', 'address' => '55 Main St',
         'city' => 'Winchester', 'state' => 'VA', 'postal_code' => '22601',
     ])->assertRedirect(route('facility.clients.edit', $enrollment));
-    $guardian = Person::query()->where('first_name', 'Morgan')->where('last_name', 'Parent')->firstOrFail();
+    $guardian = Person::query()->where('person_type', 'guardian')->get()->first(fn (Person $person) => $person->first_name === 'Morgan' && $person->last_name === 'Parent') ?? throw new RuntimeException('Guardian not found');
     expect($guardian->organization_id)->toBe($org->id)
         ->and($guardian->user_id)->toBeNull()
         ->and($guardian->person_type)->toBe('guardian');
@@ -136,7 +136,7 @@ it('blocks creating guardians when client management permissions are absent', fu
     $this->post(route('facility.clients.guardians.store', $enrollment), [
         'first_name' => 'Denied', 'last_name' => 'Person', 'relationship_label' => 'Parent',
     ])->assertForbidden();
-    $this->assertDatabaseMissing('people', ['first_name' => 'Denied', 'last_name' => 'Person']);
+    expect(Person::query()->get()->contains(fn (Person $person) => $person->first_name === 'Denied' && $person->last_name === 'Person'))->toBeFalse();
 });
 
 it('records guardian authorization and consent history without granting login access', function () {
@@ -461,4 +461,34 @@ it('blocks replacement and historical download outside the authorized client fac
     $this->get(route('facility.clients.documents.versions.download', [$enrollment, $document, $version]))->assertForbidden();
     $this->assertDatabaseCount('document_versions', 2);
     $this->assertDatabaseCount('document_access_events', 0);
+});
+
+it('encrypts newly uploaded document bytes and decrypts them only for authorized downloads', function () {
+    [, , , , $enrollment] = profileSetup();
+    \Illuminate\Support\Facades\Storage::fake('local');
+    $original = '%PDF-1.4 secure patient information';
+    $upload = \Illuminate\Http\UploadedFile::fake()->createWithContent('report.pdf', $original);
+    $this->post(route('facility.clients.documents.store', $enrollment), [
+        'file' => $upload, 'title' => 'Protected document', 'category' => 'other',
+    ])->assertRedirect();
+    $document = \App\Models\Document::query()->sole();
+    $raw = \Illuminate\Support\Facades\Storage::disk('local')->get($document->storage_path);
+    expect($document->storage_path)->toEndWith('.encrypted');
+    expect($raw)->not->toContain($original);
+    expect(base64_decode(\Illuminate\Support\Facades\Crypt::decryptString($raw), true))->toBe($original);
+    $response = $this->get(route('facility.clients.documents.download', [$enrollment, $document]));
+    $response->assertOk();
+    expect($response->streamedContent())->toBe($original);
+});
+
+it('refuses tampered encrypted documents instead of serving their contents as plaintext', function () {
+    [, , , , $enrollment] = profileSetup();
+    \Illuminate\Support\Facades\Storage::fake('local');
+    $this->post(route('facility.clients.documents.store', $enrollment), [
+        'file' => \Illuminate\Http\UploadedFile::fake()->create('report.pdf', 2, 'application/pdf'),
+        'title' => 'Protected document', 'category' => 'other',
+    ])->assertRedirect();
+    $document = \App\Models\Document::query()->sole();
+    \Illuminate\Support\Facades\Storage::disk('local')->put($document->storage_path, 'tampered bytes');
+    $this->get(route('facility.clients.documents.download', [$enrollment, $document]))->assertStatus(500);
 });

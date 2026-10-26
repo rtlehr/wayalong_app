@@ -24,7 +24,7 @@ function documentAuditSetup(): array
     $facility = Facility::factory()->create(['organization_id' => $organization->id]);
     DB::table('organization_staff_facilities')->insert([
         'organization_id' => $organization->id, 'facility_id' => $facility->id, 'user_id' => $user->id,
-        'role' => 'clinician', 'created_at' => now(), 'updated_at' => now(),
+        'role' => 'client_admin', 'created_at' => now(), 'updated_at' => now(),
     ]);
     test()->withSession([FacilityContext::SESSION_KEY => $facility->id]);
     $person = Person::create(['first_name' => 'Audit', 'last_name' => 'Client', 'person_type' => 'client', 'facility_id' => $facility->id]);
@@ -74,6 +74,6 @@ it('denies document audit access without active facility management permissions'
         ->where('facility_id', $facility->id)->where('user_id', $user->id)->update(['role' => 'staff']);
     $this->get(route('facility.documents.audit'))->assertForbidden();
     DB::table('organization_staff_facilities')->where('organization_id', $org->id)
-        ->where('facility_id', $facility->id)->where('user_id', $user->id)->update(['role' => 'clinician']);
+        ->where('facility_id', $facility->id)->where('user_id', $user->id)->update(['role' => 'client_admin']);
     $this->withSession([FacilityContext::SESSION_KEY => null])->get(route('facility.documents.audit'))->assertForbidden();
 });

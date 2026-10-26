@@ -7,6 +7,7 @@ use App\Models\Person;
 use App\Support\FacilityContext;
 use App\Support\FacilityPermissions;
 use App\Support\OrganizationContext;
+use App\Support\PersonNameSearch;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -32,19 +33,26 @@ class FacilityClientController extends Controller
         $search = trim((string) $request->query('search', ''));
         abort_if(mb_strlen($search) > 100, 422);
 
+        $canManage = $permissions->allows($request->user(), $facility, FacilityPermissions::MANAGE_CLIENTS);
+
         $enrollments = ClientEnrollment::query()
             ->with('person:id,first_name,last_name,date_of_birth')
             ->where('facility_id', $facility->id)
+            ->where('organization_id', $facility->organization_id)
+            ->when(! $canManage, fn ($query) => $query->whereExists(fn ($assignment) => $assignment->selectRaw('1')
+                ->from('client_staff_assignments')
+                ->whereColumn('client_staff_assignments.client_enrollment_id', 'client_enrollments.id')
+                ->where('client_staff_assignments.organization_id', $facility->organization_id)
+                ->where('client_staff_assignments.user_id', $request->user()->id)))
             ->whereHas('person', fn ($query) => $query->where('person_type', 'client'))
-            ->when($search !== '', fn ($query) => $query->whereHas('person', fn ($person) => $person
-                ->where(fn ($name) => $name->where('first_name', 'like', '%'.$search.'%')->orWhere('last_name', 'like', '%'.$search.'%'))))
+            ->when($search !== '', fn ($query) => $query->whereHas('person', fn ($person) => PersonNameSearch::constrain($person, $search, (int) $facility->organization_id)))
             ->orderByDesc('enrolled_at')->paginate(15)->withQueryString();
 
         return Inertia::render('facilities/Clients', [
             'facility' => $facility->only('id', 'name'),
             'clients' => $enrollments,
             'search' => $search,
-            'canManage' => $permissions->allows($request->user(), $facility, FacilityPermissions::MANAGE_CLIENTS),
+            'canManage' => $canManage,
         ]);
     }
 
@@ -87,7 +95,15 @@ class FacilityClientController extends Controller
     private function clientEnrollment(Request $request, ClientEnrollment $enrollment, OrganizationContext $organizations, FacilityContext $facilities, FacilityPermissions $permissions, string $permission): array
     {
         $facility = $this->authorizedFacility($request, $organizations, $facilities, $permissions, $permission);
-        abort_unless((int) $enrollment->facility_id === (int) $facility->id, 404);
+        abort_unless((int) $enrollment->facility_id === (int) $facility->id
+            && (int) $enrollment->organization_id === (int) $facility->organization_id, 404);
+        if ($permission === FacilityPermissions::VIEW_CLIENTS
+            && ! $permissions->allows($request->user(), $facility, FacilityPermissions::MANAGE_CLIENTS)) {
+            abort_unless(DB::table('client_staff_assignments')
+                ->where('organization_id', $facility->organization_id)
+                ->where('client_enrollment_id', $enrollment->id)
+                ->where('user_id', $request->user()->id)->exists(), 403);
+        }
         $person = $enrollment->person;
         abort_unless($person && $person->person_type === 'client' && (int) $person->organization_id === (int) $facility->organization_id, 404);
 
@@ -145,9 +161,17 @@ class FacilityClientController extends Controller
             'facility' => $facility->only('id', 'name'),
             'enrollment' => $enrollment->only('id', 'status', 'enrolled_at', 'discharged_at'),
             'person' => $person->only('id', 'first_name', 'last_name', 'date_of_birth'),
-            'insurancePolicies' => \App\Models\ClientInsurancePolicy::query()->where('person_id', $person->id)
+            'canAccessBilling' => (function () use ($request, $facility): bool {
+                $membership = $request->user()->organizations()->whereKey($facility->organization_id)
+                    ->where('organizations.status', 'active')->wherePivot('status', 'active')->first();
+                return $membership && in_array($membership->pivot->role, ['owner', 'admin'], true)
+                    && DB::table('organization_staff_facilities')->where('organization_id', $facility->organization_id)
+                        ->where('facility_id', $facility->id)->where('user_id', $request->user()->id)->exists();
+            })(),
+            'insuranceProviders' => \App\Models\InsuranceProvider::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'payer_code', 'phone']),
+            'insurancePolicies' => \App\Models\ClientInsurancePolicy::query()->with('verifications')->where('person_id', $person->id)
                 ->orderByRaw("CASE coverage_order WHEN 'primary' THEN 1 WHEN 'secondary' THEN 2 ELSE 3 END")
-                ->get(['id', 'payer_name', 'coverage_order', 'member_id', 'group_number', 'plan_name', 'subscriber_name', 'subscriber_relationship', 'effective_on', 'expires_on', 'verification_status', 'verified_on', 'notes']),
+                ->get(['id', 'insurance_provider_id', 'payer_name', 'coverage_order', 'member_id', 'group_number', 'plan_name', 'subscriber_name', 'subscriber_relationship', 'effective_on', 'expires_on', 'verification_status', 'verified_on', 'notes']),
             'contacts' => $person->contactMethods()->get(['kind', 'label', 'is_primary', 'value', 'line_1', 'line_2', 'city', 'state', 'postal_code', 'country'])->toArray(),
             'guardians' => $guardians,
             'authorizationRecords' => $authorizationRecords,
@@ -172,7 +196,7 @@ class FacilityClientController extends Controller
                 ])->values()->all(),
 
             'assignedStaff' => $staff,
-            'guardianOptions' => $editing ? Person::query()->where('person_type', 'guardian')->orderBy('last_name')->get(['id', 'first_name', 'last_name']) : [],
+            'guardianOptions' => $editing ? Person::query()->where('person_type', 'guardian')->get(['id', 'first_name', 'last_name'])->sortBy(fn (Person $guardian) => mb_strtolower($guardian->last_name.' '.$guardian->first_name))->values() : [],
             'staffOptions' => $editing ? DB::table('organization_staff_facilities as assignments')
                 ->join('users', 'users.id', '=', 'assignments.user_id')
                 ->join('organization_user', function ($join) { $join->on('organization_user.user_id', '=', 'users.id')->on('organization_user.organization_id', '=', 'assignments.organization_id'); })

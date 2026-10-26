@@ -52,6 +52,8 @@ function handleAction(event: Event, client: ClientRow): void {
     select.value = '';
     if (action === 'view') {
         router.get(`/facility/clients/${client.id}`);
+    } else if (action === 'treatment') {
+        router.get(`/facility/clients/${client.id}/treatment`);
     } else if (action === 'edit' && props.canManage) {
         router.get(`/facility/clients/${client.id}/edit`);
     } else if (action === 'status' && props.canManage && !busy.value) {
@@ -80,7 +82,7 @@ function changeStatus(): void {
         <header class="space-y-2">
             <Link href="/dashboard" class="text-sm underline underline-offset-4">← My WayAlong</Link>
             <h1 class="text-2xl font-semibold">{{ facility.name }} — Client Directory</h1>
-            <p class="text-sm text-muted-foreground">Only clients enrolled at your selected facility are shown.</p>
+            <p class="text-sm text-muted-foreground">Only clients you are authorized to access at the selected facility are shown.</p>
         </header>
         <section class="space-y-4 rounded-xl border p-5">
             <form class="flex flex-wrap items-end gap-3" @submit.prevent="filter">
@@ -103,7 +105,8 @@ function changeStatus(): void {
                 <template #actions="{ row }">
                     <select aria-label="Client actions" class="rounded-md border bg-background px-3 py-2 text-sm" value="" :disabled="busy" @change="handleAction($event, row)">
                         <option value="">Actions ▾</option>
-                        <option value="view">View</option>
+                        <option value="view">Client Administration</option>
+                        <option value="treatment">Client Treatment</option>
                         <option v-if="canManage" value="edit">Edit</option>
                         <option v-if="canManage" value="status">{{ row.status === 'discharged' ? 'Reactivate' : 'Discharge' }}</option>
                     </select>

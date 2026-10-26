@@ -11,7 +11,9 @@ class ContactMethod extends Model
 
     protected function casts(): array
     {
-        return ['is_primary' => 'boolean', 'verified_at' => 'datetime'];
+        return ['is_primary' => 'boolean', 'verified_at' => 'datetime',
+            'value' => 'encrypted', 'line_1' => 'encrypted', 'line_2' => 'encrypted',
+            'city' => 'encrypted', 'state' => 'encrypted', 'postal_code' => 'encrypted'];
     }
 
     public function contactable(): MorphTo

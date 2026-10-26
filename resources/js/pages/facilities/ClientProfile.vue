@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import WayAlongFormSections from '@/components/WayAlongFormSections.vue';
 import WayAlongDocuments from '@/components/WayAlongDocuments.vue';
@@ -16,14 +16,17 @@ const props = defineProps<{
     facility: { id: number; name: string };
     enrollment: { id: number; status: string; enrolled_at: string; discharged_at: string | null };
     person: { id: number; first_name: string; last_name: string; date_of_birth: string | null };
-    insurancePolicies: { id: number; payer_name: string; coverage_order: string; member_id: string | null; group_number: string | null; plan_name: string | null; subscriber_name: string | null; subscriber_relationship: string | null; effective_on: string | null; expires_on: string | null; verification_status: string; verified_on: string | null; notes: string | null }[];
+    canAccessBilling: boolean;
+    insuranceProviders: { id: number; name: string; payer_code: string | null; phone: string | null }[];
+    insurancePolicies: { id: number; insurance_provider_id: number | null; verifications: { id: number; status: string; method: string; checked_on: string; reference_number: string | null; notes: string | null }[]; payer_name: string; coverage_order: string; member_id: string | null; group_number: string | null; plan_name: string | null; subscriber_name: string | null; subscriber_relationship: string | null; effective_on: string | null; expires_on: string | null; verification_status: string; verified_on: string | null; notes: string | null }[];
     contacts: Contact[];
     authorizationRecords: AuthorizationRecord[];
     documents: { current_version?: number; versions?: { id: number; number: number; filename: string; notes?: string | null; created_at?: string | null }[]; review_status?: string; review_notes?: string | null; reviewed_at?: string | null; review_events?: { status: string; notes: string | null; created_at: string }[]; id: number; title: string; category: string; original_filename: string; file_size: number; expires_on: string | null; created_at: string | null }[];
     guardians: Guardian[]; guardianOptions: PersonOption[];
     assignedStaff: StaffOption[]; staffOptions: StaffOption[];
 }>();
-const active = ref('personal');
+const initialSection = new URLSearchParams(usePage().url.split('?')[1] ?? '').get('section');
+const active = ref(initialSection === 'contact' ? 'contact' : 'personal');
 const guardianSearch = ref('');
 const showNewGuardian = ref(false);
 const authorization = useForm({guardian_person_id: '', record_type: 'authority', subject: 'legal_authority', decision: 'pending', effective_on: new Date().toISOString().slice(0,10), expires_on: '', evidence_reference: '', evidence_document_id: '', notes: ''});
@@ -263,7 +266,8 @@ function save(): void {
                         <p v-else-if="!readonly && !guardians.length" class="text-sm text-muted-foreground">Link a parent or guardian and save the client profile before recording authorization.</p>
                     </template>
                     <template v-else-if="active === 'insurance'">
-                        <ClientInsurancePolicies :enrollment-id="enrollment.id" :policies="insurancePolicies" :can-manage="canManage && !readonly" />
+                        <Link v-if="canAccessBilling" :href="`${base}/billing`" class="mb-4 inline-block rounded-md border px-3 py-2 text-sm font-medium">Open Client Billing & Charges →</Link>
+                        <ClientInsurancePolicies :enrollment-id="enrollment.id" :providers="insuranceProviders" :policies="insurancePolicies" :can-manage="canManage && !readonly" />
                     </template>
                     <template v-else-if="active === 'documents'">
                         <WayAlongDocuments :documents="documents" :upload-url="`${base}/documents`" :download-base="`${base}/documents`" :can-upload="!readonly && canManage" />

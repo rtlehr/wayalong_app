@@ -13,7 +13,7 @@ use Illuminate\Validation\Rule;
 
 class ClientInsurancePolicyController extends Controller
 {
-    private function authorizedClient(Request $request, ClientEnrollment $enrollment, string $permission): int
+    public function authorizedClient(Request $request, ClientEnrollment $enrollment, string $permission): int
     {
         $facility = app(FacilityContext::class)->current($request, app(OrganizationContext::class));
         abort_unless($facility && app(FacilityPermissions::class)->allows($request->user(), $facility, $permission), 403);
@@ -47,6 +47,15 @@ class ClientInsurancePolicyController extends Controller
     {
         $personId = $this->authorizedClient($request, $enrollment, FacilityPermissions::MANAGE_CLIENTS);
         $data = $this->input($request);
+        $providerId = $request->input('insurance_provider_id');
+        $request->validate(['insurance_provider_id' => ['nullable', 'integer', Rule::exists('insurance_providers', 'id')->where('organization_id', $enrollment->organization_id)->where('is_active', true)]]);
+        if ($providerId) {
+            $provider = \App\Models\InsuranceProvider::findOrFail($providerId);
+            $data['insurance_provider_id'] = $provider->id;
+            $data['payer_name'] = $provider->name;
+        } else {
+            $data['insurance_provider_id'] = null;
+        }
         $request->validate(['coverage_order' => [Rule::unique('client_insurance_policies')->where('organization_id', $enrollment->organization_id)->where('person_id', $personId)]]);
         ClientInsurancePolicy::create([...$data, 'person_id' => $personId]);
 
@@ -58,6 +67,15 @@ class ClientInsurancePolicyController extends Controller
         $personId = $this->authorizedClient($request, $enrollment, FacilityPermissions::MANAGE_CLIENTS);
         abort_unless((int) $policy->person_id === $personId, 404);
         $data = $this->input($request);
+        $providerId = $request->input('insurance_provider_id');
+        $request->validate(['insurance_provider_id' => ['nullable', 'integer', Rule::exists('insurance_providers', 'id')->where('organization_id', $enrollment->organization_id)->where('is_active', true)]]);
+        if ($providerId) {
+            $provider = \App\Models\InsuranceProvider::findOrFail($providerId);
+            $data['insurance_provider_id'] = $provider->id;
+            $data['payer_name'] = $provider->name;
+        } else {
+            $data['insurance_provider_id'] = null;
+        }
         $request->validate(['coverage_order' => [Rule::unique('client_insurance_policies')->where('organization_id', $enrollment->organization_id)->where('person_id', $personId)->ignore($policy->id)]]);
         $policy->update($data);
 
@@ -68,6 +86,9 @@ class ClientInsurancePolicyController extends Controller
     {
         $personId = $this->authorizedClient($request, $enrollment, FacilityPermissions::MANAGE_CLIENTS);
         abort_unless((int) $policy->person_id === $personId, 404);
+        if ($policy->verifications()->exists()) {
+            return redirect()->route('facility.clients.edit', $enrollment)->withErrors(['insurance' => 'This policy has verification history and cannot be removed.']);
+        }
         $policy->delete();
 
         return redirect()->route('facility.clients.edit', $enrollment)->with('success', 'Insurance policy removed.');

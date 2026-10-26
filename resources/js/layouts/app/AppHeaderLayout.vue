@@ -19,7 +19,7 @@ withDefaults(defineProps<Props>(), {
     <AppShell variant="header">
         <AppHeader :breadcrumbs="breadcrumbs" />
         <WayAlongStatusBanner />
-        <AppContent variant="header">
+        <AppContent variant="header" class="wayalong-workspace">
             <slot />
         </AppContent>
         <Toaster />
