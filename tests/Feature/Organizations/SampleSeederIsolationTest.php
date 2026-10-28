@@ -17,7 +17,8 @@ it('creates independent organization accounts and repeatable facility assignment
     $ridgeClinician = User::query()->where('email', 'dev.ridge.clinician@wayalong.test')->firstOrFail();
 
     expect($valleyClinician->id)->not->toBe($ridgeClinician->id)
-        ->and($valleyClinician->name)->toBe($ridgeClinician->name)
+        ->and($valleyClinician->name)->toBe('ValleyYouthServices Clinician')
+        ->and($ridgeClinician->name)->toBe('BlueRidgeTreatment Clinician')
         ->and($valleyClinician->organizations()->pluck('organizations.id')->all())->toBe([$valley->id])
         ->and($ridgeClinician->organizations()->pluck('organizations.id')->all())->toBe([$ridge->id]);
 

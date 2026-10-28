@@ -9,7 +9,7 @@ class DevelopmentSeeder extends WayAlongSampleSeeder
     public function run(): void
     {
         $this->assertSafeEnvironment();
-        $this->platformAdministrator('dev.platform.admin@wayalong.test', 'WayAlong Platform Administrator');
+        $this->platformAdministrator('dev.platform.admin@wayalong.test', 'WayAlong PlatformAdmin');
 
         $valley = $this->organization('valley-youth-services', ['name' => 'Valley Youth Services', 'status' => 'active', 'timezone' => 'America/New_York']);
         $ridge = $this->organization('blue-ridge-behavioral-health', ['name' => 'Blue Ridge Behavioral Health', 'status' => 'active', 'timezone' => 'America/New_York']);
@@ -21,14 +21,14 @@ class DevelopmentSeeder extends WayAlongSampleSeeder
         $ridgeNorth = $this->sampleFacility($ridge, 'NOVA', 'Northern Virginia Counseling Center', 'Fairfax');
         $this->sampleFacility($community, 'COMM', 'Community Recovery Campus', 'Richmond');
 
-        $ownerA = $this->organizationUser($valley, 'dev.valley.owner@wayalong.test', 'Morgan Carter', 'owner');
-        $adminA = $this->organizationUser($valley, 'dev.valley.admin@wayalong.test', 'Taylor Morgan', 'admin');
-        $clinicianA = $this->organizationUser($valley, 'dev.valley.clinician@wayalong.test', 'Jordan Ellis', 'clinician');
-        $staffA = $this->organizationUser($valley, 'dev.valley.staff@wayalong.test', 'Avery Parker', 'staff');
-        $inactiveA = $this->organizationUser($valley, 'dev.valley.inactive@wayalong.test', 'Casey Reed', 'staff', 'inactive', false);
-        $ownerB = $this->organizationUser($ridge, 'dev.ridge.owner@wayalong.test', 'Taylor Morgan', 'owner');
-        $clinicianB = $this->organizationUser($ridge, 'dev.ridge.clinician@wayalong.test', 'Jordan Ellis', 'clinician');
-        $this->organizationUser($community, 'dev.community.owner@wayalong.test', 'Morgan Carter', 'owner');
+        $ownerA = $this->organizationUser($valley, 'dev.valley.owner@wayalong.test', 'ValleyYouthServices Owner', 'owner');
+        $adminA = $this->organizationUser($valley, 'dev.valley.admin@wayalong.test', 'ValleyYouthServices Admin', 'admin');
+        $clinicianA = $this->organizationUser($valley, 'dev.valley.clinician@wayalong.test', 'ValleyYouthServices Clinician', 'clinician');
+        $staffA = $this->organizationUser($valley, 'dev.valley.staff@wayalong.test', 'ValleyYouthServices Staff', 'staff');
+        $inactiveA = $this->organizationUser($valley, 'dev.valley.inactive@wayalong.test', 'ValleyYouthServices InactiveStaff', 'staff', 'inactive', false);
+        $ownerB = $this->organizationUser($ridge, 'dev.ridge.owner@wayalong.test', 'BlueRidge Owner', 'owner');
+        $clinicianB = $this->organizationUser($ridge, 'dev.ridge.clinician@wayalong.test', 'BlueRidgeTreatment Clinician', 'clinician');
+        $this->organizationUser($community, 'dev.community.owner@wayalong.test', 'CommunityRecoveryNetwork Owner', 'owner');
 
         $this->assignFacilities($valley, $ownerA, [$valleyMain, $valleyOutpatient], 'Executive Director');
         $this->assignFacilities($valley, $adminA, [$valleyMain, $valleyOutpatient], 'Facility Administrator');

@@ -26,7 +26,7 @@ class ClientShiftNoteController extends Controller
             && $enrollment->status === 'active'
             && $enrollment->person?->person_type === 'client', 404);
         abort_unless($permissions->allows($request->user(), $facility, $permission), 403);
-        abort_unless(DB::table('client_staff_assignments')->where('organization_id', $organization->id)
+        abort_unless($permissions->isOwner($request->user(), $facility) || DB::table('client_staff_assignments')->where('organization_id', $organization->id)
             ->where('client_enrollment_id', $enrollment->id)->where('user_id', $request->user()->id)->exists(), 403);
     }
 

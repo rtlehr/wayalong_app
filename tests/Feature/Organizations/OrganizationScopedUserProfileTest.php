@@ -57,3 +57,22 @@ it('prevents deactivating the final active organization owner', function () {
         ->patch(route('organization.admin.users.active', $owner->id), ['is_active' => false])->assertStatus(422);
     expect(DB::table('organization_user')->where('organization_id', $organization->id)->where('user_id', $owner->id)->value('status'))->toBe('active');
 });
+
+
+it('keeps an active owner when a second owner is deactivated through the status endpoint', function () {
+    $organization = Organization::factory()->create();
+    $firstOwner = User::factory()->create();
+    $secondOwner = User::factory()->create();
+    $firstOwner->organizations()->attach($organization, ['role' => 'owner', 'status' => 'active']);
+    $secondOwner->organizations()->attach($organization, ['role' => 'owner', 'status' => 'active']);
+
+    $this->actingAs($firstOwner)->withSession([OrganizationContext::SESSION_KEY => $organization->id])
+        ->patch(route('organization.admin.users.active', $secondOwner->id), ['is_active' => false])->assertRedirect();
+    expect(DB::table('organization_user')->where('organization_id', $organization->id)
+        ->where('user_id', $secondOwner->id)->value('status'))->toBe('inactive');
+
+    $this->patch(route('organization.admin.users.active', $firstOwner->id), ['is_active' => false])
+        ->assertStatus(422);
+    expect(DB::table('organization_user')->where('organization_id', $organization->id)
+        ->where('user_id', $firstOwner->id)->value('status'))->toBe('active');
+});

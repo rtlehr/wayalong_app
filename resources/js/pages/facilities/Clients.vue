@@ -18,6 +18,7 @@ const props = defineProps<{
     clients: { data: Enrollment[]; total: number; from: number | null; to: number | null; links: PageLink[] };
     search: string;
     canManage: boolean;
+    treatmentAccess: Record<string, boolean>;
 }>();
 
 const term = ref(props.search);
@@ -39,6 +40,30 @@ const rows = computed<ClientRow[]>(() => props.clients.data.map(client => ({
     discharge_date: client.discharged_at?.slice(0, 10) ?? '—',
 })));
 
+const exportError = ref('');
+async function auditExport(exportRows: ClientRow[]): Promise<boolean> {
+    exportError.value = '';
+    if (!exportRows.length) return false;
+    try {
+        const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
+        const csrfCookie = document.cookie.split('; ').find(value => value.startsWith('XSRF-TOKEN='))?.split('=')[1];
+        const response = await fetch('/facility/clients/audit-export', {
+            method: 'POST', credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json', 'Accept': 'application/json',
+                ...(token ? { 'X-CSRF-TOKEN': token } : {}),
+                ...(csrfCookie ? { 'X-XSRF-TOKEN': decodeURIComponent(csrfCookie) } : {}),
+            },
+            body: JSON.stringify({ enrollment_ids: exportRows.map(row => row.id) }),
+        });
+        if (!response.ok) throw new Error('Access verification failed');
+        return true;
+    } catch {
+        exportError.value = 'Export blocked because the required access audit could not be recorded.';
+        return false;
+    }
+}
+
 function filter(): void {
     router.get('/facility/clients', { search: term.value }, { preserveState: true, replace: true });
 }
@@ -52,7 +77,7 @@ function handleAction(event: Event, client: ClientRow): void {
     select.value = '';
     if (action === 'view') {
         router.get(`/facility/clients/${client.id}`);
-    } else if (action === 'treatment') {
+    } else if (action === 'treatment' && props.treatmentAccess[String(client.id)] === true) {
         router.get(`/facility/clients/${client.id}/treatment`);
     } else if (action === 'edit' && props.canManage) {
         router.get(`/facility/clients/${client.id}/edit`);
@@ -92,8 +117,10 @@ function changeStatus(): void {
                 <button type="submit" class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground">Search</button>
                 <button type="button" class="rounded-md border px-4 py-2 text-sm" @click="clearFilter">Clear</button>
             </form>
+            <p v-if="exportError" role="alert" class="text-sm text-destructive">{{ exportError }}</p>
             <WayAlongRecordTable
                 :rows="rows"
+                :before-export="auditExport"
                 :columns="columns"
                 :client-search="false"
                 :can-add="canManage"
@@ -106,7 +133,7 @@ function changeStatus(): void {
                     <select aria-label="Client actions" class="rounded-md border bg-background px-3 py-2 text-sm" value="" :disabled="busy" @change="handleAction($event, row)">
                         <option value="">Actions ▾</option>
                         <option value="view">Client Administration</option>
-                        <option value="treatment">Client Treatment</option>
+                        <option v-if="treatmentAccess[String(row.id)] === true" value="treatment">Client Treatment</option>
                         <option v-if="canManage" value="edit">Edit</option>
                         <option v-if="canManage" value="status">{{ row.status === 'discharged' ? 'Reactivate' : 'Discharge' }}</option>
                     </select>

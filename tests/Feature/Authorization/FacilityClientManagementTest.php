@@ -188,7 +188,7 @@ it('limits clinician directory and profile access to assigned clients and blocks
     $this->patch(route('facility.clients.update', $assigned), ['status' => 'discharged'])->assertForbidden();
 });
 
-it('lets a facility-assigned owner manage client administration without granting treatment rights', function () {
+it('lets an organization owner manage selected-facility administration and view treatment across organization facilities', function () {
     $organization = Organization::factory()->create();
     $owner = User::factory()->create();
     $organization->users()->attach($owner, ['role' => 'owner', 'status' => 'active']);
@@ -218,5 +218,12 @@ it('lets a facility-assigned owner manage client administration without granting
         ->assertInertia(fn (Assert $page) => $page->where('canManage', true)->etc());
     $this->get(route('facility.clients.edit', $client))->assertOk();
     $this->get(route('facility.clients.show', $otherClient))->assertNotFound();
-    $this->get(route('facility.clients.treatment.overview', $client))->assertForbidden();
+    $this->get(route('facility.clients.treatment.overview', $client))->assertOk();
+    // Organization Owners have ordinary treatment access throughout their organization,
+    // even while administrative client lists remain scoped to the selected facility.
+    $this->get(route('facility.clients.treatment.overview', $otherClient))->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('facilities/ClientTreatmentOverview')
+            ->where('client.id', $otherClient->id)
+            ->etc());
 });

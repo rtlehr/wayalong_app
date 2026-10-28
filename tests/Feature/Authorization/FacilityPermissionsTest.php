@@ -87,7 +87,7 @@ it('revokes facility permissions immediately when membership or facility becomes
     expect($permissions->allows($user, $facility->fresh(), FacilityPermissions::VIEW_CLIENTS))->toBeFalse();
 });
 
-it('does not infer clinical permissions from organization owner status', function () {
+it('grants organization owners ordinary treatment access at their facilities', function () {
     $organization = Organization::factory()->create();
     $owner = User::factory()->create();
     $organization->users()->attach($owner, ['role' => 'owner', 'status' => 'active']);
@@ -98,8 +98,69 @@ it('does not infer clinical permissions from organization owner status', functio
     expect($permissions->allows($owner, $facility, FacilityPermissions::VIEW_STAFF))->toBeTrue()
         ->and($permissions->allows($owner, $facility, FacilityPermissions::VIEW_CLIENTS))->toBeTrue()
         ->and($permissions->allows($owner, $facility, FacilityPermissions::MANAGE_CLIENTS))->toBeTrue()
-        ->and($permissions->allows($owner, $facility, FacilityPermissions::VIEW_CLINICAL_CASELOAD))->toBeFalse()
-        ->and($permissions->allows($owner, $facility, FacilityPermissions::MANAGE_ALERTS))->toBeFalse()
-        ->and($permissions->allows($owner, $facility, FacilityPermissions::VIEW_SHIFT_NOTES))->toBeFalse()
-        ->and($permissions->allows($owner, $facility, FacilityPermissions::WRITE_SHIFT_NOTES))->toBeFalse();
+        ->and($permissions->allows($owner, $facility, FacilityPermissions::VIEW_CLINICAL_CASELOAD))->toBeTrue()
+        ->and($permissions->allows($owner, $facility, FacilityPermissions::MANAGE_ALERTS))->toBeTrue()
+        ->and($permissions->allows($owner, $facility, FacilityPermissions::VIEW_SHIFT_NOTES))->toBeTrue()
+        ->and($permissions->allows($owner, $facility, FacilityPermissions::WRITE_SHIFT_NOTES))->toBeTrue();
+});
+
+
+it('lets an organization owner administer and access ordinary treatment in every active facility without assignment', function () {
+    $organization = Organization::factory()->create();
+    $owner = User::factory()->create();
+    $organization->users()->attach($owner, ['role' => 'owner', 'status' => 'active']);
+    $this->actingAs($owner)->withSession([OrganizationContext::SESSION_KEY => $organization->id]);
+    $first = Facility::factory()->create(['organization_id' => $organization->id]);
+    $second = Facility::factory()->create(['organization_id' => $organization->id]);
+    $permissions = app(FacilityPermissions::class);
+
+    foreach ([$first, $second] as $facility) {
+        expect($permissions->allows($owner, $facility, FacilityPermissions::MANAGE_CLIENTS))->toBeTrue()
+            ->and($permissions->allows($owner, $facility, FacilityPermissions::MANAGE_ALERTS))->toBeTrue()
+            ->and($permissions->allows($owner, $facility, FacilityPermissions::VIEW_SHIFT_NOTES))->toBeTrue();
+
+        // Exercise the authenticated facility-switch route rather than calling the
+        // context service with a request outside the HTTP test lifecycle.
+        $this->post(route('facilities.switch'), ['facility_id' => $facility->id])
+            ->assertRedirect(route('dashboard'));
+        expect((int) session(FacilityContext::SESSION_KEY))->toBe($facility->id);
+    }
+    $organization->users()->updateExistingPivot($owner->id, ['status' => 'inactive']);
+    expect($permissions->allows($owner, $first, FacilityPermissions::MANAGE_ALERTS))->toBeFalse();
+});
+
+it('confines facility owner rights to their assigned facility and keeps facility admins nonclinical', function () {
+    $organization = Organization::factory()->create();
+    $owner = User::factory()->create();
+    $admin = User::factory()->create();
+    $organization->users()->attach($owner, ['role' => 'staff', 'status' => 'active']);
+    $organization->users()->attach($admin, ['role' => 'staff', 'status' => 'active']);
+    $this->actingAs($owner)->withSession([OrganizationContext::SESSION_KEY => $organization->id]);
+    $facility = assignFacilityRole($organization, $owner, 'facility_owner');
+    $other = Facility::factory()->create(['organization_id' => $organization->id]);
+    DB::table('organization_staff_facilities')->insert([
+        'organization_id' => $organization->id, 'user_id' => $admin->id,
+        'facility_id' => $facility->id, 'role' => 'facility_admin',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    $permissions = app(FacilityPermissions::class);
+    expect($permissions->allows($owner, $facility, FacilityPermissions::MANAGE_ALERTS))->toBeTrue()
+        ->and($permissions->allows($owner, $other, FacilityPermissions::VIEW_CLIENTS))->toBeFalse()
+        ->and($permissions->allows($admin, $facility, FacilityPermissions::MANAGE_CLIENTS))->toBeTrue()
+        ->and($permissions->allows($admin, $facility, FacilityPermissions::MANAGE_STAFF_PERMISSIONS))->toBeTrue()
+        ->and($permissions->allows($admin, $facility, FacilityPermissions::MANAGE_ALERTS))->toBeFalse()
+        ->and($permissions->allows($admin, $facility, FacilityPermissions::VIEW_SHIFT_NOTES))->toBeFalse();
+});
+
+it('gives organization admins logistics authority across facilities without clinical access', function () {
+    $organization = Organization::factory()->create();
+    $admin = User::factory()->create();
+    $organization->users()->attach($admin, ['role' => 'admin', 'status' => 'active']);
+    $this->actingAs($admin)->withSession([OrganizationContext::SESSION_KEY => $organization->id]);
+    $facility = Facility::factory()->create(['organization_id' => $organization->id]);
+    $permissions = app(FacilityPermissions::class);
+    expect($permissions->allows($admin, $facility, FacilityPermissions::VIEW_CLIENTS))->toBeTrue()
+        ->and($permissions->allows($admin, $facility, FacilityPermissions::MANAGE_CLIENTS))->toBeTrue()
+        ->and($permissions->allows($admin, $facility, FacilityPermissions::MANAGE_ALERTS))->toBeFalse()
+        ->and($permissions->allows($admin, $facility, FacilityPermissions::VIEW_SHIFT_NOTES))->toBeFalse();
 });

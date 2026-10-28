@@ -11,6 +11,7 @@ use App\Support\PersonNameSearch;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -35,6 +36,12 @@ class FacilityClientController extends Controller
 
         $canManage = $permissions->allows($request->user(), $facility, FacilityPermissions::MANAGE_CLIENTS);
 
+        // Mirror the treatment overview's permission and client-assignment requirements.
+        // Administrative client access alone must not advertise clinical actions.
+        $hasTreatmentPermission = $permissions->allows($request->user(), $facility, FacilityPermissions::MANAGE_ALERTS)
+            || $permissions->allows($request->user(), $facility, FacilityPermissions::VIEW_SHIFT_NOTES);
+        $canViewAnyTreatment = $hasTreatmentPermission && $permissions->isOwner($request->user(), $facility);
+
         $enrollments = ClientEnrollment::query()
             ->with('person:id,first_name,last_name,date_of_birth')
             ->where('facility_id', $facility->id)
@@ -48,11 +55,25 @@ class FacilityClientController extends Controller
             ->when($search !== '', fn ($query) => $query->whereHas('person', fn ($person) => PersonNameSearch::constrain($person, $search, (int) $facility->organization_id)))
             ->orderByDesc('enrolled_at')->paginate(15)->withQueryString();
 
+        $assignedClientIds = $hasTreatmentPermission && ! $canViewAnyTreatment
+            ? DB::table('client_staff_assignments')
+                ->where('organization_id', $facility->organization_id)
+                ->where('user_id', $request->user()->id)
+                ->whereIn('client_enrollment_id', $enrollments->getCollection()->pluck('id'))
+                ->pluck('client_enrollment_id')->map(fn ($id) => (int) $id)->all()
+            : [];
+        $treatmentAccess = $enrollments->getCollection()->mapWithKeys(fn (ClientEnrollment $enrollment) => [
+            $enrollment->id => $enrollment->status === 'active'
+                && $hasTreatmentPermission
+                && ($canViewAnyTreatment || in_array((int) $enrollment->id, $assignedClientIds, true)),
+        ])->all();
+
         return Inertia::render('facilities/Clients', [
             'facility' => $facility->only('id', 'name'),
             'clients' => $enrollments,
             'search' => $search,
             'canManage' => $canManage,
+            'treatmentAccess' => $treatmentAccess,
         ]);
     }
 
@@ -155,6 +176,8 @@ class FacilityClientController extends Controller
             ]);
         $staffIds = DB::table('client_staff_assignments')->where('client_enrollment_id', $enrollment->id)->pluck('user_id')->all();
         $staff = DB::table('users')->whereIn('id', $staffIds)->get(['id', 'name']);
+
+        app(\App\Support\SensitiveAccessAudit::class)->record($request, $enrollment, 'admin_profile');
 
         return Inertia::render('facilities/ClientProfile', [
             'mode' => $editing ? 'edit' : 'view', 'canManage' => $canManage,
@@ -389,7 +412,16 @@ class FacilityClientController extends Controller
         if (count($validStaff) !== count($staffIds)) {
             throw ValidationException::withMessages(['staff_ids' => 'Every assigned staff member must belong to this facility and have an active organization membership.']);
         }
-        DB::transaction(function () use ($data, $person, $enrollment, $facility, $staffIds, $guardianDetails): void {
+        $assignmentChanges = DB::transaction(function () use ($data, $person, $enrollment, $facility, $staffIds, $guardianDetails): array {
+            // Serialize edits for this enrollment so the audit delta reflects committed assignments.
+            DB::table('client_enrollments')->where('id', $enrollment->id)->lockForUpdate()->first();
+            $previousStaffIds = DB::table('client_staff_assignments')
+                ->where('organization_id', $facility->organization_id)
+                ->where('client_enrollment_id', $enrollment->id)
+                ->pluck('user_id')->map(fn ($id) => (int) $id)->all();
+            $newStaffIds = array_values(array_unique(array_map('intval', $staffIds)));
+            $added = array_values(array_diff($newStaffIds, $previousStaffIds));
+            $removed = array_values(array_diff($previousStaffIds, $newStaffIds));
             $person->update(collect($data)->only(['first_name', 'last_name', 'date_of_birth'])->all());
             $person->contactMethods()->delete();
             foreach ($data['contacts'] ?? [] as $contact) {
@@ -407,7 +439,21 @@ class FacilityClientController extends Controller
             foreach ($staffIds as $staffId) {
                 DB::table('client_staff_assignments')->insert(['organization_id' => $facility->organization_id, 'client_enrollment_id' => $enrollment->id, 'user_id' => $staffId, 'created_at' => now(), 'updated_at' => now()]);
             }
+            return ['added' => $added, 'removed' => $removed];
         });
+
+        foreach (['added' => 'created', 'removed' => 'removed'] as $key => $action) {
+            foreach ($assignmentChanges[$key] as $staffId) {
+                Log::info('WayAlong client staff assignment '.$action, [
+                    'actor_id' => (int) $request->user()->id,
+                    'subject_id' => (int) $staffId,
+                    'organization_id' => (int) $facility->organization_id,
+                    'facility_id' => (int) $facility->id,
+                    'client_enrollment_id' => (int) $enrollment->id,
+                    'action' => 'client_staff_assignment.'.$action,
+                ]);
+            }
+        }
 
         return redirect()->route('facility.clients.edit', $enrollment)->with('success', 'Client profile updated.');
     }

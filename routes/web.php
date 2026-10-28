@@ -45,11 +45,25 @@ Route::middleware(['auth', 'verified'])->group(function () {
             ->whereIn('assignment.organization_id', $memberships->pluck('id'))
             ->select('assignment.organization_id', 'assignment.facility_id', 'assignment.role', 'facilities.name')
             ->orderBy('facilities.name')->get()->groupBy('organization_id');
+        // Leadership dashboard lists every facility in the active organization,
+        // not just staff assignments. This does not expand ordinary staff access.
+        foreach ($memberships as $memberOrganization) {
+            if (! in_array($memberOrganization->pivot->role, ['owner', 'admin'], true)) {
+                continue;
+            }
+            $allFacilities = \App\Models\Facility::query()
+                ->where('organization_id', $memberOrganization->id)->where('status', 'active')
+                ->orderBy('name')->get(['id', 'name']);
+            $assignments->put($memberOrganization->id, $allFacilities->map(fn ($facility) => (object) [
+                'organization_id' => $memberOrganization->id, 'facility_id' => $facility->id,
+                'name' => $facility->name, 'role' => $memberOrganization->pivot->role,
+            ]));
+        }
         $activeOrganization = $context->current($request);
         $activeFacility = $facilities->current($request, $context);
         $facilityPermissions = app(\App\Support\FacilityPermissions::class);
-        // Only active, explicitly assigned clinical clients in the selected organization.
-        // Organization owner/admin status does not grant access to these records.
+        // My Clients remains an assignment-based personal caseload for all roles.
+        // Owners use facility dashboards for facility-wide treatment access.
         $clinicalFacilities = ($assignments->get($activeOrganization?->id) ?? collect())
             ->filter(function ($assignment) use ($request, $facilityPermissions) {
                 $facility = \App\Models\Facility::query()->find($assignment->facility_id);
@@ -166,8 +180,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('organizations/switch', OrganizationSwitchController::class)->name('organizations.switch');
     Route::post('facilities/switch', FacilitySwitchController::class)->name('facilities.switch');
     Route::get('facility/staff', FacilityStaffRosterController::class)->name('facility.staff.index');
+    Route::post('facility/staff/assignments', [\App\Http\Controllers\FacilityStaffManagementController::class, 'store'])->name('facility.staff.assignments.store');
+    Route::delete('facility/staff/assignments/{member}', [\App\Http\Controllers\FacilityStaffManagementController::class, 'destroy'])->name('facility.staff.assignments.destroy');
     Route::get('facility/documents/audit', \App\Http\Controllers\FacilityDocumentAuditController::class)->name('facility.documents.audit');
     Route::get('facility/clients', [FacilityClientController::class, 'index'])->name('facility.clients.index');
+    Route::post('facility/clients/audit-export', \App\Http\Controllers\FacilityClientExportAuditController::class)->name('facility.clients.audit-export');
     Route::get('facility/clients/create', [FacilityClientController::class, 'create'])->name('facility.clients.create');
     Route::post('facility/clients', [FacilityClientController::class, 'store'])->name('facility.clients.store');
     Route::patch('facility/clients/{enrollment}', [FacilityClientController::class, 'update'])->name('facility.clients.update');
@@ -205,6 +222,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('facility/clients/{enrollment}/documents/{document}/review', [\App\Http\Controllers\FacilityClientDocumentController::class, 'review'])->name('facility.clients.documents.review');
     Route::get('facility/clients/{enrollment}/documents/{document}', [\App\Http\Controllers\FacilityClientDocumentController::class, 'download'])->name('facility.clients.documents.download');
 
+    Route::get('facility/staff/{facility}/members/{member}/permissions', [\App\Http\Controllers\MemberPermissionOverrideController::class, 'facilityEdit'])->name('facility.staff.permissions.edit');
+    Route::get('facility/staff/{facility}/members/{member}/roles', [\App\Http\Controllers\FacilityRoleAssignmentController::class, 'facilityEdit'])->name('facility.staff.roles.edit');
+    Route::patch('facility/staff/{facility}/members/{member}/roles', [\App\Http\Controllers\FacilityRoleAssignmentController::class, 'facilityUpdate'])->name('facility.staff.roles.update');
+    Route::patch('facility/staff/{facility}/members/{member}/permissions', [\App\Http\Controllers\MemberPermissionOverrideController::class, 'facilityUpdate'])->name('facility.staff.permissions.update');
+
     Route::prefix('organization/admin')->middleware('organization.required')->name('organization.admin.')->group(function () {
         Route::get('/', [OrganizationAdministrationController::class, 'index'])->name('index');
         Route::get('/billing', \App\Http\Controllers\OrganizationBillingDirectoryController::class)->name('billing.index');
@@ -234,6 +256,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/staff/create', [OrganizationAdministrationController::class, 'createStaff'])->name('staff.create');
         Route::get('/staff/{member}', [OrganizationAdministrationController::class, 'viewStaff'])->whereNumber('member')->name('staff.show');
         Route::get('/staff/{member}/edit', [OrganizationAdministrationController::class, 'editStaff'])->whereNumber('member')->name('staff.edit');
+        Route::patch('/staff/{member}/facility-roles', [\App\Http\Controllers\FacilityRoleAssignmentController::class, 'update'])->name('staff.facility-roles.update');
         Route::patch('/staff/{member}/details', [OrganizationAdministrationController::class, 'updateStaffDetails'])->whereNumber('member')->name('staff.details.update');
         Route::delete('/staff/{member}', [OrganizationAdministrationController::class, 'deleteStaff'])->whereNumber('member')->name('staff.destroy');
         Route::patch('/settings', [OrganizationAdministrationController::class, 'update'])->name('update');
@@ -243,6 +266,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('/roles/{role}', [OrganizationAdministrationController::class, 'deleteRole'])->name('roles.destroy');
         Route::post('/members', [OrganizationAdministrationController::class, 'storeMember'])->name('members.store');
         Route::patch('/members/{member}', [OrganizationAdministrationController::class, 'updateMember'])->name('members.update');
+        Route::patch('/members/{member}/permissions', [\App\Http\Controllers\MemberPermissionOverrideController::class, 'update'])->name('members.permissions.update');
         Route::post('/facilities', [OrganizationAdministrationController::class, 'storeFacility'])->name('facilities.store');
         Route::patch('/facilities/{facility}', [OrganizationAdministrationController::class, 'updateFacility'])->name('facilities.update');
         Route::delete('/facilities/{facility}', [OrganizationAdministrationController::class, 'deleteFacility'])->name('facilities.destroy');

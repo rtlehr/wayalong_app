@@ -59,7 +59,8 @@ it('displays the selected organization and counts only its records', function ()
         ->where('stats.activeStaff', 1)
         ->where('stats.customRoles', 1)
         ->where('stats.pendingInvitations', 1)
-        ->has('tools', 6)
+        ->has('tools', 7)
+        ->where('tools.5.key', 'security-audit')
         ->etc());
 });
 

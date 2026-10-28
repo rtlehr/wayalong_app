@@ -146,3 +146,54 @@ it('accepts an invitation to a facility in another organization while signed int
         ->exists())->toBeTrue();
     expect($blueRidge->users()->whereKey($recipient->id)->wherePivot('status', 'active')->exists())->toBeTrue();
 });
+
+
+it('rejects a pending staff invitation after its inviter loses organization membership', function () {
+    $organization = Organization::factory()->create();
+    $inviter = User::factory()->create();
+    $recipient = User::factory()->create();
+    $organization->users()->attach($inviter, ['role' => 'admin', 'status' => 'active']);
+
+    [$invitation, $token] = facilityInvitation($organization, $recipient->email, null, $inviter->id, 'staff');
+
+    DB::table('organization_user')
+        ->where('organization_id', $organization->id)
+        ->where('user_id', $inviter->id)
+        ->update(['status' => 'inactive']);
+
+    $this->actingAs($recipient)
+        ->post(route('invitations.accept', $token))
+        ->assertForbidden();
+
+    expect($invitation->fresh()->accepted_at)->toBeNull();
+    expect($organization->users()->whereKey($recipient->id)->exists())->toBeFalse();
+});
+
+
+it('rejects a pending invitation after the inviter is demoted but remains active', function () {
+    $organization = Organization::factory()->create();
+    $inviter = User::factory()->create();
+    $recipient = User::factory()->create();
+    $organization->users()->attach($inviter, ['role' => 'admin', 'status' => 'active']);
+    [$invitation, $token] = facilityInvitation($organization, $recipient->email, null, $inviter->id);
+
+    DB::table('organization_user')->where('organization_id', $organization->id)
+        ->where('user_id', $inviter->id)->update(['role' => 'staff']);
+
+    $this->actingAs($recipient)->post(route('invitations.accept', $token))->assertForbidden();
+    expect($invitation->fresh()->accepted_at)->toBeNull();
+    expect($organization->users()->whereKey($recipient->id)->exists())->toBeFalse();
+});
+
+it('accepts a pending staff invitation when the inviter still has management authority', function () {
+    $organization = Organization::factory()->create();
+    $inviter = User::factory()->create();
+    $recipient = User::factory()->create();
+    $organization->users()->attach($inviter, ['role' => 'admin', 'status' => 'active']);
+    [$invitation, $token] = facilityInvitation($organization, $recipient->email, null, $inviter->id);
+
+    $this->actingAs($recipient)->post(route('invitations.accept', $token))
+        ->assertRedirect(route('dashboard'));
+    expect($invitation->fresh()->accepted_at)->not->toBeNull();
+    expect($organization->users()->whereKey($recipient->id)->wherePivot('status', 'active')->exists())->toBeTrue();
+});

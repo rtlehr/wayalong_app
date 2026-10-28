@@ -65,3 +65,25 @@ it('blocks the overview for unassigned clients and unauthenticated users', funct
     auth()->logout();
     $this->get(route('facility.clients.treatment.overview', $assigned))->assertRedirect();
 });
+
+
+it('permits ordinary treatment views for owners without client assignment but not administrators', function () {
+    $organization = Organization::factory()->create();
+    $owner = User::factory()->create();
+    $admin = User::factory()->create();
+    $organization->users()->attach($owner, ['role' => 'owner', 'status' => 'active']);
+    $organization->users()->attach($admin, ['role' => 'admin', 'status' => 'active']);
+    $this->actingAs($owner)->withSession([OrganizationContext::SESSION_KEY => $organization->id]);
+    $facility = Facility::factory()->create(['organization_id' => $organization->id]);
+    $person = Person::create(['first_name' => 'Owner', 'last_name' => 'Example', 'person_type' => 'client', 'facility_id' => $facility->id]);
+    $client = ClientEnrollment::create(['person_id' => $person->id, 'facility_id' => $facility->id, 'status' => 'active', 'enrolled_at' => today()]);
+
+    $this->get(route('facility.clients.treatment.overview', $client))->assertOk();
+    $this->get(route('facility.clients.treatment.alerts', $client))->assertOk();
+    $this->get(route('facility.clients.treatment.shift-notes', $client))->assertOk();
+
+    $this->actingAs($admin)->withSession([OrganizationContext::SESSION_KEY => $organization->id]);
+    $this->get(route('facility.clients.treatment.overview', $client))->assertForbidden();
+    $this->get(route('facility.clients.treatment.alerts', $client))->assertForbidden();
+    $this->get(route('facility.clients.treatment.shift-notes', $client))->assertForbidden();
+});

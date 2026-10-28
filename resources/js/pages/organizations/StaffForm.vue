@@ -17,6 +17,12 @@ const props = defineProps<{
     staffDetails?: { job_title?: string | null; staff_type?: string | null; credentials?: string | null; notes?: string | null } | null;
     assignedFacilities?: number[];
     selectedFacilityId?: number;
+    permissionGroups?: { name: string; permissions: { key: string; label: string; description: string }[] }[];
+    organizationOverrides?: Record<string, string>;
+    facilityOverrides?: Record<string, string>;
+    effectivePermissions?: Record<string, boolean>;
+    facilityRoleAssignment?: { id: number; role: string | null } | null;
+    facilityAdditionalRoles?: string[];
     facilityStaffDetails?: { job_title?: string | null; staff_type?: string | null; credentials?: string | null; notes?: string | null } | null;
 }>();
 const base = '/organization/admin/staff';
@@ -28,11 +34,41 @@ const invitationMode = ref(false);
 const matches = computed(() => (props.eligibleUsers ?? []).filter(u => `${u.name} ${u.email}`.toLowerCase().includes(userSearch.value.toLowerCase())));
 const chosenUser = computed(() => (props.eligibleUsers ?? []).find(u => u.id === selectedUserId.value));
 const roles = computed(() => [
-    { value: 'staff', name: 'Staff' }, { value: 'clinician', name: 'Clinician' }, { value: 'floor_staff', name: 'Floor Staff' }, { value: 'client_admin', name: 'Client Administrator' },
+    { value: 'staff', name: 'Staff' }, { value: 'facility_manager', name: 'Facility Manager' }, { value: 'clinician', name: 'Clinician' }, { value: 'floor_staff', name: 'Floor Staff' }, { value: 'client_admin', name: 'Client Administrator' },
     { value: 'admin', name: 'Admin' },
     ...(props.isOwner ? [{ value: 'owner', name: 'Owner' }] : []), ...props.customRoles,
 ]);
 const membership = useForm({ role: props.member?.role ?? 'staff', status: props.member?.status ?? 'active' });
+const facilityRoleForm = useForm({
+    facility_id: props.selectedFacilityId ?? 0,
+    primary_role: props.facilityRoleAssignment?.role ?? 'staff',
+    additional_roles: [...(props.facilityAdditionalRoles ?? [])],
+});
+const facilityAdditionalOptions = [
+    { value: 'clinician', label: 'Clinician' }, { value: 'floor_staff', label: 'Floor Staff' },
+    { value: 'client_admin', label: 'Client Administrator' }, { value: 'staff', label: 'Staff' },
+];
+const toggleFacilityAdditional = (role: string, enabled: boolean) => {
+    facilityRoleForm.additional_roles = enabled
+        ? [...facilityRoleForm.additional_roles, role] : facilityRoleForm.additional_roles.filter(r => r !== role);
+};
+const saveFacilityRoles = () => {
+    if (!props.member || readOnly.value || !props.selectedFacilityId) return;
+    facilityRoleForm.patch(`${base}/${props.member.id}/facility-roles`, { preserveScroll: true });
+};
+const pendingPermission = ref('');
+const permissionError = ref('');
+const selectedScope = ref<'organization' | 'facility'>('organization');
+const permissionChoices = computed(() => (props.permissionGroups ?? []).flatMap(g => g.permissions).filter(p => selectedScope.value === 'facility' ? p.key.startsWith('facility.') : !p.key.startsWith('facility.')));
+const permissionDecision = (key: string) => selectedScope.value === 'facility' ? props.facilityOverrides?.[key] ?? 'inherit' : props.organizationOverrides?.[key] ?? 'inherit';
+const updatePermission = (key: string, decision: string) => {
+    if (!props.member || readOnly.value || pendingPermission.value) return;
+    pendingPermission.value = key;
+    permissionError.value = '';
+    router.patch(`/organization/admin/members/${props.member.id}/permissions`, {
+        permission: key, decision, facility_id: selectedScope.value === 'facility' ? props.selectedFacilityId : null,
+    }, { preserveScroll: true, onFinish: () => { pendingPermission.value = ''; }, onError: (errors) => { permissionError.value = Object.values(errors).join(' '); } });
+};
 const invitation = useForm({ email: '', role: 'staff', facility_id: null as number | null });
 const details = useForm({
     job_title: props.facilityStaffDetails?.job_title ?? props.staffDetails?.job_title ?? '', staff_type: props.facilityStaffDetails?.staff_type ?? props.staffDetails?.staff_type ?? '',
@@ -153,11 +189,57 @@ const selectExisting = () => {
                                 <select v-model="membership.status" required :disabled="readOnly" class="rounded-md border bg-background px-3 py-2 disabled:bg-muted/30"><option value="active">Active</option><option value="inactive">Inactive</option></select>
                                 <span v-if="membership.errors.status" class="text-destructive">{{ membership.errors.status }}</span>
                             </label>
-                            <p class="text-xs text-muted-foreground">Permissions come from this organization's role definitions. Individual permission overrides are not yet enabled.</p>
+                            <div class="space-y-4 rounded-xl border bg-muted/10 p-4">
+                                <h3 class="font-semibold">Individual permission overrides</h3>
+                                <p class="text-sm text-muted-foreground">Inherit uses the selected role. Allow or Deny takes effect immediately within the chosen scope. Organization and client-access boundaries remain enforced.</p>
+                                <label class="grid gap-1 text-sm">Permission scope
+                                    <select v-model="selectedScope" class="rounded-md border bg-background px-3 py-2">
+                                        <option value="organization">Organization-wide permissions</option>
+                                        <option v-if="selectedFacilityId" value="facility">Selected facility permissions</option>
+                                    </select>
+                                </label>
+                                <div v-if="selectedScope === 'facility' && (assignedFacilities ?? []).length > 1" class="space-y-1">
+                                    <label for="override-facility" class="text-sm font-medium">Facility</label>
+                                    <select id="override-facility" :value="selectedFacilityId ?? 0" class="w-full rounded-md border bg-background px-3 py-2 text-sm" @change="router.visit(`${base}/${member?.id}/edit?facility_id=${($event.target as HTMLSelectElement).value}`)">
+                                        <option v-for="facility in (availableFacilities ?? []).filter(f => (assignedFacilities ?? []).includes(f.id))" :key="facility.id" :value="facility.id">{{ facility.name }}</option>
+                                    </select>
+                                </div>
+                                <p v-if="selectedScope === 'facility'" class="text-xs text-muted-foreground">Applies only to the selected facility. Client assignments and other mandatory access limits remain in force.</p>
+                                <p v-if="permissionError" class="text-sm text-destructive" role="alert">{{ permissionError }}</p>
+                                <div v-for="item in permissionChoices" :key="item.key" class="flex flex-wrap items-center justify-between gap-3 border-t py-3">
+                                    <div class="min-w-0 flex-1">
+                                        <p class="text-sm font-medium">{{ item.label }}</p>
+                                        <p class="text-xs text-muted-foreground">{{ item.description }}</p>
+                                        <p class="text-xs text-muted-foreground">{{ item.key }} · Currently {{ effectivePermissions?.[item.key] ? 'allowed' : 'denied' }}</p>
+                                    </div>
+                                    <select :value="permissionDecision(item.key)" :disabled="readOnly || !!pendingPermission" class="rounded-md border bg-background px-2 py-2 text-sm" :aria-label="`Override ${item.label}`" @change="updatePermission(item.key, ($event.target as HTMLSelectElement).value)">
+                                        <option value="inherit">Inherit</option><option value="allow">Allow</option><option value="deny">Deny</option>
+                                    </select>
+                                </div>
+                            </div>
                             <button v-if="!readOnly" type="submit" :disabled="membership.processing" class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground">Save role and status</button>
                         </form>
                     </template>
                     <template v-else-if="activeSection === 'facilities'">
+                        <form v-if="mode === 'edit' && selectedFacilityId && facilityRoleAssignment" class="mb-5 space-y-3 rounded-xl border bg-card p-4" @submit.prevent="saveFacilityRoles">
+                            <h3 class="font-semibold">Facility roles · {{ availableFacilities?.find(f => f.id === selectedFacilityId)?.name }}</h3>
+                            <p class="text-xs text-muted-foreground">The primary role defines leadership authority. Additional roles grant ordinary capabilities only at this facility.</p>
+                            <label class="grid gap-1 text-sm">Primary facility role
+                                <select v-model="facilityRoleForm.primary_role" class="rounded-md border bg-background px-3 py-2">
+                                    <option value="staff">Staff</option><option value="clinician">Clinician</option>
+                                    <option value="floor_staff">Floor Staff</option><option value="client_admin">Client Administrator</option>
+                                    <option value="facility_manager">Facility Manager</option><option value="facility_admin">Facility Admin</option>
+                                    <option v-if="isOwner || facilityRoleForm.primary_role === 'facility_owner'" value="facility_owner">Facility Owner (Owner assignment required)</option>
+                                </select>
+                            </label>
+                            <fieldset class="space-y-2"><legend class="text-sm font-medium">Additional facility roles</legend>
+                                <label v-for="option in facilityAdditionalOptions" :key="option.value" class="flex items-center gap-2 text-sm">
+                                    <input type="checkbox" :checked="facilityRoleForm.additional_roles.includes(option.value)" @change="toggleFacilityAdditional(option.value, ($event.target as HTMLInputElement).checked)" />{{ option.label }}
+                                </label>
+                            </fieldset>
+                            <p v-if="Object.keys(facilityRoleForm.errors).length" class="text-sm text-destructive" role="alert">{{ Object.values(facilityRoleForm.errors).join(' ') }}</p>
+                            <button class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50" :disabled="facilityRoleForm.processing">Save facility roles</button>
+                        </form>
                         <p class="text-sm text-muted-foreground">Facility assignments belong to the user's organization membership. Maintain them in User Management, not within an individual staff profile.</p>
                         <ul class="space-y-2"><li v-for="facility in (availableFacilities ?? []).filter(f => (assignedFacilities ?? []).includes(f.id))" :key="facility.id" class="rounded-md border p-3 text-sm">{{ facility.name }}</li></ul>
                         <a v-if="member" :href="`/organization/admin/users/${member.id}/edit`" class="inline-block rounded-md border px-4 py-2 text-sm">Edit facility assignments</a>

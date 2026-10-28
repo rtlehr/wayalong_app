@@ -27,7 +27,8 @@ it('loads fictional development organizations, facilities and isolated organizat
         ->and($ridgeClinician->organizations)->toHaveCount(1)
         ->and($ridgeClinician->organizations->first()->slug)->toBe('blue-ridge-behavioral-health')
         ->and($ridgeClinician->id)->not->toBe($valleyClinician->id)
-        ->and($ridgeClinician->name)->toBe($valleyClinician->name)
+        ->and($ridgeClinician->name)->toBe('BlueRidgeTreatment Clinician')
+        ->and($valleyClinician->name)->toBe('ValleyYouthServices Clinician')
         ->and(User::where('email', 'dev.valley.inactive@wayalong.test')->firstOrFail()->is_active)->toBeFalse();
 });
 

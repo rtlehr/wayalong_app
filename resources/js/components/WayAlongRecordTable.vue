@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 type Row = Record<string, any>;
 type Column = { key: string; label: string };
-const props = withDefaults(defineProps<{ rows: Row[]; columns: Column[]; storageKey: string; clientSearch?: boolean; canAdd?: boolean; addLabel?: string }>(), { clientSearch: true, canAdd: false, addLabel: 'Add' });
+const props = withDefaults(defineProps<{ rows: Row[]; columns: Column[]; storageKey: string; clientSearch?: boolean; canAdd?: boolean; addLabel?: string; beforeExport?: (rows: Row[]) => Promise<boolean> }>(), { clientSearch: true, canAdd: false, addLabel: 'Add' });
 const emit = defineEmits<{ add: [] }>();
 const search = ref('');
 const sortKey = ref('');
@@ -23,11 +23,17 @@ const shown = computed(() => order.value.map(key => props.columns.find(c => c.ke
 const displayed = computed(() => props.rows.filter(row => !props.clientSearch || Object.values(row).some(v => String(v ?? '').toLowerCase().includes(search.value.trim().toLowerCase()))).sort((a,b) => { if (!sortKey.value) return 0; const v = String(a[sortKey.value] ?? '').localeCompare(String(b[sortKey.value] ?? ''), undefined, { numeric: true }); return descending.value ? -v : v; }));
 const sort = (key: string) => { descending.value = sortKey.value === key && !descending.value; sortKey.value = key; };
 const move = (key: string, step: number) => { const i = order.value.indexOf(key); const j = i + step; if (j < 0 || j >= order.value.length) return; const next = [...order.value]; [next[i], next[j]] = [next[j], next[i]]; order.value = next; };
-const exportCsv = () => {
-    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-    const csv = [shown.value.map(c => escape(c.label)).join(','), ...displayed.value.map(row => shown.value.map(c => escape(row[c.key])).join(','))].join('\r\n');
-    const url = URL.createObjectURL(new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a'); link.href = url; link.download = `${props.storageKey}.csv`; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 0);
+const exporting = ref(false);
+const exportCsv = async () => {
+    if (exporting.value) return;
+    exporting.value = true;
+    try {
+        if (props.beforeExport && !(await props.beforeExport(displayed.value))) return;
+        const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+        const csv = [shown.value.map(c => escape(c.label)).join(','), ...displayed.value.map(row => shown.value.map(c => escape(row[c.key])).join(','))].join('\r\n');
+        const url = URL.createObjectURL(new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8' }));
+        const link = document.createElement('a'); link.href = url; link.download = `${props.storageKey}.csv`; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    } finally { exporting.value = false; }
 };
 </script>
 <template>
@@ -35,7 +41,7 @@ const exportCsv = () => {
         <div class="flex flex-wrap items-center justify-end gap-2">
             <input v-if="clientSearch" v-model="search" type="search" aria-label="Search records" placeholder="Search records…" class="min-w-48 flex-1 rounded-md border bg-background px-3 py-2 text-sm" />
             <button type="button" class="rounded-md border px-3 py-2 text-sm hover:bg-accent" :aria-expanded="settingsOpen" @click="settingsOpen = !settingsOpen">Column Settings</button>
-            <button type="button" class="rounded-md border px-3 py-2 text-sm hover:bg-accent" @click="exportCsv">Export CSV</button>
+            <button type="button" class="rounded-md border px-3 py-2 text-sm hover:bg-accent" :disabled="exporting" @click="exportCsv">{{ exporting ? 'Checking access…' : 'Export CSV' }}</button>
             <button v-if="canAdd" type="button" class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground" @click="emit('add')">+ {{ addLabel }}</button>
         </div>
         <div v-if="settingsOpen" class="rounded-xl border bg-muted/30 p-4">

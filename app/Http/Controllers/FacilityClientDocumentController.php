@@ -68,6 +68,8 @@ class FacilityClientDocumentController extends Controller
             'created_at' => now(),
         ]);
 
+        app(\App\Support\SensitiveAccessAudit::class)->record($request, $enrollment, 'document_download');
+
         return app(EncryptedDocumentStorage::class)->download($document->storage_path, $document->original_filename);
     }
     public function replace(Request $request, ClientEnrollment $enrollment, Document $document, OrganizationContext $organizations, FacilityContext $facilities, FacilityPermissions $permissions, DocumentManager $documents): RedirectResponse
@@ -99,6 +101,8 @@ class FacilityClientDocumentController extends Controller
             'record_id' => $enrollment->id,
             'created_at' => now(),
         ]);
+
+        app(\App\Support\SensitiveAccessAudit::class)->record($request, $enrollment, 'document_download');
 
         return app(EncryptedDocumentStorage::class)->download($version->storage_path, $version->original_filename);
     }

@@ -32,13 +32,13 @@ function auditViewerEvent(Organization $organization, User $user, int $enrollmen
     ]);
 }
 
-it('requires a separately granted security audit permission and does not grant it to an owner automatically', function () {
+it('grants organization owners organization scoped security audit access', function () {
     $organization = Organization::factory()->create();
     $owner = auditViewerActor($organization, 'owner');
     $this->get(route('admin.security.audit'))->assertRedirect();
     $this->actingAs($owner)->withSession([OrganizationContext::SESSION_KEY => $organization->id]);
-    $this->get(route('admin.security.audit'))->assertForbidden();
-    expect(app(OrganizationPermissions::class)->allows($owner, $organization, OrganizationPermissions::VIEW_SECURITY_AUDIT))->toBeFalse();
+    $this->get(route('admin.security.audit'))->assertOk();
+    expect(app(OrganizationPermissions::class)->allows($owner, $organization, OrganizationPermissions::VIEW_SECURITY_AUDIT))->toBeTrue();
 });
 
 it('shows only current organization audit metadata and filters by staff, section and outcome', function () {

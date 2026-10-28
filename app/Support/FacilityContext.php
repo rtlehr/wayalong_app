@@ -17,7 +17,15 @@ class FacilityContext
         $user = $request->user();
         $selected = $request->session()->get(self::SESSION_KEY);
 
-        if ($organization === null || $user === null || $selected === null) {
+        if ($organization === null || $user === null) {
+            // Access may have been revoked while this browser session was open.
+            // Never retain a facility selection without an authorized organization.
+            $request->session()->forget(self::SESSION_KEY);
+
+            return null;
+        }
+
+        if ($selected === null) {
             return null;
         }
 
@@ -26,6 +34,10 @@ class FacilityContext
             ->where('status', 'active')
             ->whereKey($selected)
             ->first();
+
+        if ($facility !== null && in_array($organization->users()->whereKey($user->id)->first()?->pivot?->role, ['owner', 'admin'], true)) {
+            return $facility;
+        }
 
         if ($facility !== null && DB::table('organization_staff_facilities')
             ->where('organization_id', $organization->id)
@@ -55,6 +67,12 @@ class FacilityContext
             ->where('facilities.organization_id', $organization->id)
             ->where('facilities.status', 'active')
             ->exists();
+
+        if (! $allowed) {
+            $role = $organization->users()->whereKey($user->id)->first()?->pivot?->role;
+            $allowed = in_array($role, ['owner', 'admin'], true)
+                && $organization->facilities()->whereKey($facilityId)->where('status', 'active')->exists();
+        }
 
         if ($allowed) {
             $request->session()->put(self::SESSION_KEY, $facilityId);

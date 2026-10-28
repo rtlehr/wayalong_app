@@ -35,10 +35,12 @@ class OrganizationAdministrationController extends Controller
 
         return Inertia::render('organizations/Admin', [
             'organization' => $organization->only('id', 'name', 'slug', 'status', 'timezone'),
-            'facilities' => Facility::query()->orderBy('name')->get([
+            'facilities' => Facility::query()->with('contactMethods')->orderBy('name')->get([
                 'id', 'name', 'code', 'status', 'address_line_1', 'address_line_2',
                 'city', 'state', 'postal_code', 'phone', 'email', 'timezone',
             ]),
+            'permissionGroups' => OrganizationPermissions::permissionGroups(),
+            'roleTemplates' => OrganizationPermissions::roleTemplates(),
             'customRoles' => $organization->customRoles()->orderBy('name')->get(['id', 'name', 'permissions'])->map(fn ($role) => ['id' => $role->id, 'name' => $role->name, 'permissions' => $role->permissions, 'value' => 'custom:'.$role->id]),
             'members' => $organization->users()->orderBy('users.name')->get(['users.id', 'users.name', 'users.email'])
                 ->map(fn ($user) => [
@@ -74,10 +76,12 @@ class OrganizationAdministrationController extends Controller
     {
         return [
             'organization' => $organization->only('id', 'name', 'slug', 'status', 'timezone'),
-            'facilities' => Facility::query()->where('organization_id', $organization->id)->orderBy('name')->get([
+            'facilities' => Facility::query()->with('contactMethods')->where('organization_id', $organization->id)->orderBy('name')->get([
                 'id', 'name', 'code', 'status', 'address_line_1', 'address_line_2',
                 'city', 'state', 'postal_code', 'phone', 'email', 'timezone',
             ]),
+            'permissionGroups' => OrganizationPermissions::permissionGroups(),
+            'roleTemplates' => OrganizationPermissions::roleTemplates(),
             'customRoles' => $organization->customRoles()->orderBy('name')->get(['id', 'name', 'permissions'])->map(fn ($role) => ['id' => $role->id, 'name' => $role->name, 'permissions' => $role->permissions, 'value' => 'custom:'.$role->id]),
             'members' => $organization->users()->orderBy('users.name')->get(['users.id', 'users.name', 'users.email'])
                 ->map(fn ($user) => [
@@ -182,7 +186,36 @@ class OrganizationAdministrationController extends Controller
                 'role' => $user->pivot->role, 'status' => $user->pivot->status],
             'staffDetails' => DB::table('organization_staff_details')->where('organization_id', $organization->id)->where('user_id', $user->id)->first(),
             'assignedFacilities' => DB::table('organization_staff_facilities')->where('organization_id', $organization->id)->where('user_id', $user->id)->pluck('facility_id'),
+            'permissionGroups' => OrganizationPermissions::permissionGroups(),
+            'organizationOverrides' => app(\App\Support\MemberPermissionOverrides::class)->saved($organization->id, $user->id, null),
+            'facilityOverrides' => $facilityId ? app(\App\Support\MemberPermissionOverrides::class)->saved($organization->id, $user->id, $facilityId) : [],
+            'effectivePermissions' => $this->staffEffectivePermissions($organization, $user, $facilityId),
+            'facilityRoleAssignment' => $facilityId ? DB::table('organization_staff_facilities')
+                ->where('organization_id', $organization->id)->where('user_id', $user->id)
+                ->where('facility_id', $facilityId)->first(['id', 'role']) : null,
+            'facilityAdditionalRoles' => $facilityId ? (function () use ($organization, $user, $facilityId): array {
+                $assignmentId = DB::table('organization_staff_facilities')->where('organization_id', $organization->id)
+                    ->where('user_id', $user->id)->where('facility_id', $facilityId)->value('id');
+                return $assignmentId ? app(\App\Support\FacilityRoleAssignments::class)->additional((int) $assignmentId) : [];
+            })() : [],
         ]);
+    }
+
+    private function staffEffectivePermissions(Organization $organization, User $user, int $facilityId): array
+    {
+        $result = [];
+        $organizationPermissions = app(OrganizationPermissions::class);
+        $facilityPermissions = app(\App\Support\FacilityPermissions::class);
+        $facility = $facilityId ? $organization->facilities()->whereKey($facilityId)->first() : null;
+        foreach (OrganizationPermissions::permissionGroups() as $group) {
+            foreach ($group['permissions'] as $entry) {
+                $key = $entry['key'];
+                $result[$key] = str_starts_with($key, 'facility.')
+                    ? ($facility !== null && $facilityPermissions->allows($user, $facility, $key))
+                    : $organizationPermissions->allows($user, $organization, $key);
+            }
+        }
+        return $result;
     }
 
     public function deleteStaff(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, int $member): RedirectResponse
@@ -195,8 +228,14 @@ class OrganizationAdministrationController extends Controller
             DB::transaction(function () use ($organization, $member, $facilityId): void {
                 DB::table('facility_staff_profiles')->where('organization_id', $organization->id)
                     ->where('user_id', $member)->where('facility_id', $facilityId)->delete();
-                DB::table('organization_staff_facilities')->where('organization_id', $organization->id)
-                    ->where('user_id', $member)->where('facility_id', $facilityId)->delete();
+                $assignment = DB::table('organization_staff_facilities')->where('organization_id', $organization->id)
+                    ->where('user_id', $member)->where('facility_id', $facilityId)->first();
+                if ($assignment !== null) {
+                    app(\App\Support\FacilityOwnershipGuard::class)->assertCanRemove(
+                        $organization->id, $facilityId, $assignment->id, $assignment->role
+                    );
+                    DB::table('organization_staff_facilities')->where('id', $assignment->id)->delete();
+                }
             });
             return redirect()->route('organization.admin.staff.index', ['facility_id' => $facilityId])
                 ->with('success', 'Staff assignment removed from this facility. User and organization membership preserved.');
@@ -206,6 +245,12 @@ class OrganizationAdministrationController extends Controller
             $target = $organization->users()->whereKey($member)->firstOrFail();
             // Membership removal is not account deletion. Reuse the owner safety checks.
             $this->assertMembershipChangeAllowed($organization, $request->user(), $target, 'staff', 'inactive');
+            foreach (DB::table('organization_staff_facilities')->where('organization_id', $organization->id)
+                ->where('user_id', $target->id)->get() as $assignment) {
+                app(\App\Support\FacilityOwnershipGuard::class)->assertCanRemove(
+                    $organization->id, $assignment->facility_id, $assignment->id, $assignment->role
+                );
+            }
             DB::table('organization_staff_facilities')->where('organization_id', $organization->id)->where('user_id', $target->id)->delete();
             DB::table('organization_staff_details')->where('organization_id', $organization->id)->where('user_id', $target->id)->delete();
             DB::table('facility_staff_profiles')->where('organization_id', $organization->id)->where('user_id', $target->id)->delete();
@@ -293,6 +338,11 @@ class OrganizationAdministrationController extends Controller
             // Serialize changes within one organization to protect its final active owner.
             Organization::query()->whereKey($organization->id)->lockForUpdate()->firstOrFail();
             $this->assertMembershipChangeAllowed($organization, $request->user(), $target, $data['role'], $data['status']);
+            if ($data['status'] === 'inactive' && $target->pivot->status === 'active') {
+                app(\App\Support\FacilityOwnershipGuard::class)->assertCanDeactivateMember(
+                    $organization->id, $target->id
+                );
+            }
             $organization->users()->updateExistingPivot($target->id, $data);
         });
 
@@ -332,8 +382,18 @@ class OrganizationAdministrationController extends Controller
                 ['job_title' => $data['job_title'] ?? null, 'staff_type' => $data['staff_type'] ?? null,
                     'credentials' => $data['credentials'] ?? null, 'notes' => $data['notes'] ?? null, 'updated_at' => $now]
             );
-            DB::table('organization_staff_facilities')->where('organization_id', $organization->id)->where('user_id', $member)->delete();
-            foreach ($data['facility_ids'] as $facilityId) {
+            $existing = DB::table('organization_staff_facilities')->where('organization_id', $organization->id)
+                ->where('user_id', $member)->get();
+            foreach ($existing as $assignment) {
+                if (! in_array((int) $assignment->facility_id, array_map('intval', $data['facility_ids']), true)) {
+                    app(\App\Support\FacilityOwnershipGuard::class)->assertCanRemove(
+                        $organization->id, $assignment->facility_id, $assignment->id, $assignment->role
+                    );
+                    DB::table('organization_staff_facilities')->where('id', $assignment->id)->delete();
+                }
+            }
+            $existingIds = $existing->pluck('facility_id')->map(fn ($id) => (int) $id)->all();
+            foreach (array_diff(array_map('intval', $data['facility_ids']), $existingIds) as $facilityId) {
                 DB::table('organization_staff_facilities')->insert([
                     'organization_id' => $organization->id, 'user_id' => $member, 'facility_id' => $facilityId,
                     'created_at' => $now, 'updated_at' => $now,
@@ -396,13 +456,74 @@ class OrganizationAdministrationController extends Controller
             'phone' => ['nullable', 'string', 'max:30'],
             'email' => ['nullable', 'email', 'max:255'],
             'timezone' => ['nullable', 'timezone'],
+            'contacts' => ['sometimes', 'array', 'max:30'],
+            'contacts.*.kind' => ['required', Rule::in(['phone', 'email'])],
+            'contacts.*.label' => ['required', 'string', 'max:50'],
+            'contacts.*.value' => ['required', 'string', 'max:255'],
+            'contacts.*.is_primary' => ['required', 'boolean'],
         ]);
+    }
+
+    /** Validate and normalize contact entries before writing any changes. */
+    private function facilityContacts(array $data): ?array
+    {
+        if (! array_key_exists('contacts', $data)) {
+            return null; // Older API callers retain single-contact compatibility.
+        }
+
+        $contacts = [];
+        $primaries = [];
+        foreach ($data['contacts'] as $contact) {
+            $value = trim($contact['value']);
+            if ($value === '') {
+                throw ValidationException::withMessages(['contacts' => 'Remove empty contact entries before saving.']);
+            }
+            if ($contact['kind'] === 'email' && ! filter_var($value, FILTER_VALIDATE_EMAIL)) {
+                throw ValidationException::withMessages(['contacts' => 'Enter a valid email address.']);
+            }
+            if (! empty($contact['is_primary'])) {
+                if (isset($primaries[$contact['kind']])) {
+                    throw ValidationException::withMessages(['contacts' => 'Only one primary contact is allowed per type.']);
+                }
+                $primaries[$contact['kind']] = true;
+            }
+            $contacts[] = ['kind' => $contact['kind'], 'label' => trim($contact['label']),
+                'value' => $value, 'is_primary' => (bool) $contact['is_primary']];
+        }
+        foreach (['phone', 'email'] as $kind) {
+            $indices = array_keys(array_filter($contacts, fn ($row) => $row['kind'] === $kind));
+            if ($indices && ! isset($primaries[$kind])) {
+                $contacts[$indices[0]]['is_primary'] = true;
+            }
+        }
+        return $contacts;
+    }
+
+    private function persistFacilityContacts(Facility $facility, array $contacts): void
+    {
+        $facility->contactMethods()->whereIn('kind', ['phone', 'email'])->delete();
+        foreach ($contacts as $contact) {
+            $facility->contactMethods()->create($contact);
+        }
+        foreach (['phone', 'email'] as $kind) {
+            $primary = collect($contacts)->first(fn ($row) => $row['kind'] === $kind && $row['is_primary']);
+            $facility->{$kind} = $primary['value'] ?? null;
+        }
+        $facility->save();
     }
 
     public function storeFacility(Request $request, OrganizationContext $context, OrganizationPermissions $permissions): RedirectResponse
     {
         $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_FACILITIES);
-        Facility::create($this->facilityData($request, $organization->id));
+        $data = $this->facilityData($request, $organization->id);
+        $contacts = $this->facilityContacts($data);
+        unset($data['contacts']);
+        DB::transaction(function () use ($data, $contacts): void {
+            $facility = Facility::create($data);
+            if ($contacts !== null) {
+                $this->persistFacilityContacts($facility, $contacts);
+            }
+        });
 
         return back()->with('success', 'Facility created.');
     }
@@ -411,7 +532,15 @@ class OrganizationAdministrationController extends Controller
     {
         $organization = $this->authorizedOrganization($request, $context, $permissions, OrganizationPermissions::MANAGE_FACILITIES);
         $record = Facility::findOrFail($facility);
-        $record->update($this->facilityData($request, $organization->id, $record->id));
+        $data = $this->facilityData($request, $organization->id, $record->id);
+        $contacts = $this->facilityContacts($data);
+        unset($data['contacts']);
+        DB::transaction(function () use ($record, $data, $contacts): void {
+            $record->update($data);
+            if ($contacts !== null) {
+                $this->persistFacilityContacts($record, $contacts);
+            }
+        });
 
         return back()->with('success', 'Facility updated.');
     }

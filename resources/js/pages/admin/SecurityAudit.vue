@@ -17,14 +17,14 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
     <header class="space-y-2">
       <Link href="/admin" class="text-sm underline">← Admin Command Center</Link>
       <h1 class="text-3xl font-semibold">Security Audit Viewer</h1>
-      <p class="text-sm text-muted-foreground">{{ organization.name }} · Read-only clinical access metadata. Patient notes and alert descriptions are never shown.</p>
+      <p class="text-sm text-muted-foreground">{{ organization.name }} · Read-only sensitive-data access metadata. Patient notes and alert descriptions are never shown.</p>
     </header>
     <form class="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-4" @submit.prevent="apply">
       <label class="grid gap-1 text-sm">Staff user ID<input v-model="form.user_id" type="number" min="1" class="rounded-md border bg-background p-2" /></label>
       <label class="grid gap-1 text-sm">Client enrollment ID<input v-model="form.client_enrollment_id" type="number" min="1" class="rounded-md border bg-background p-2" /></label>
       <label class="grid gap-1 text-sm">Facility ID<input v-model="form.facility_id" type="number" min="1" class="rounded-md border bg-background p-2" /></label>
-      <label class="grid gap-1 text-sm">Section<select v-model="form.section" class="rounded-md border bg-background p-2"><option value="">All sections</option><option value="overview">Overview</option><option value="alerts">Alerts &amp; Safety</option><option value="shift_notes">End of Shift</option></select></label>
-      <label class="grid gap-1 text-sm">Outcome<select v-model="form.outcome" class="rounded-md border bg-background p-2"><option value="">All outcomes</option><option value="viewed">Viewed</option><option value="denied">Denied</option></select></label>
+      <label class="grid gap-1 text-sm">Section<select v-model="form.section" class="rounded-md border bg-background p-2"><option value="">All sections</option><option value="overview">Overview</option><option value="alerts">Alerts &amp; Safety</option><option value="shift_notes">End of Shift</option><option value="admin_profile">Client Administration</option><option value="document_download">Document Download</option><option value="directory_export">Client Directory Export</option></select></label>
+      <label class="grid gap-1 text-sm">Outcome<select v-model="form.outcome" class="rounded-md border bg-background p-2"><option value="">All outcomes</option><option value="viewed">Viewed</option><option value="denied">Denied</option><option value="exported">Exported</option></select></label>
       <label class="grid gap-1 text-sm">From<input v-model="form.from" type="date" class="rounded-md border bg-background p-2" /></label>
       <label class="grid gap-1 text-sm">Through<input v-model="form.to" type="date" class="rounded-md border bg-background p-2" /></label>
       <div class="flex items-end gap-2"><button type="submit" class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground">Apply filters</button><button type="button" class="rounded-md border px-3 py-2 text-sm" @click="reset">Clear</button></div>

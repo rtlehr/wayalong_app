@@ -21,12 +21,12 @@ class ClientTreatmentController extends Controller
             && (int) $facility->organization_id === (int) $organization->id
             && $enrollment->status === 'active'
             && $enrollment->person?->person_type === 'client', 404);
-        abort_unless(DB::table('client_staff_assignments')
+        abort_unless($permissions->isOwner($request->user(), $facility) || DB::table('client_staff_assignments')
             ->where('organization_id', $organization->id)
             ->where('client_enrollment_id', $enrollment->id)
             ->where('user_id', $request->user()->id)->exists(), 403);
 
-        $canViewAlerts = $permissions->allows($request->user(), $facility, FacilityPermissions::VIEW_CLIENTS);
+        $canViewAlerts = $permissions->allows($request->user(), $facility, FacilityPermissions::MANAGE_ALERTS);
         $canViewShiftNotes = $permissions->allows($request->user(), $facility, FacilityPermissions::VIEW_SHIFT_NOTES);
         abort_unless($canViewAlerts || $canViewShiftNotes, 403);
 
@@ -73,8 +73,8 @@ class ClientTreatmentController extends Controller
             && (int) $facility->organization_id === (int) $organization->id
             && $enrollment->status === 'active'
             && $enrollment->person?->person_type === 'client', 404);
-        abort_unless($permissions->allows($request->user(), $facility, FacilityPermissions::VIEW_CLIENTS), 403);
-        abort_unless(DB::table('client_staff_assignments')
+        abort_unless($permissions->allows($request->user(), $facility, FacilityPermissions::MANAGE_ALERTS), 403);
+        abort_unless($permissions->isOwner($request->user(), $facility) || DB::table('client_staff_assignments')
             ->where('organization_id', $organization->id)
             ->where('client_enrollment_id', $enrollment->id)
             ->where('user_id', $request->user()->id)->exists(), 403);

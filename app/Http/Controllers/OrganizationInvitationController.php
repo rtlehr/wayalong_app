@@ -114,7 +114,7 @@ class OrganizationInvitationController extends Controller
             ->first();
     }
 
-    public function accept(Request $request, string $token): RedirectResponse
+    public function accept(Request $request, string $token, OrganizationPermissions $permissions): RedirectResponse
     {
         // Account creation is offered only to invited email addresses without an account.
         $invitation = $this->invitation($token);
@@ -130,13 +130,22 @@ class OrganizationInvitationController extends Controller
             ]);
         }
 
-        $user = DB::transaction(function () use ($invitation, $existing, $request) {
+        $user = DB::transaction(function () use ($invitation, $existing, $request, $permissions) {
             $locked = OrganizationInvitation::whereKey($invitation->id)->lockForUpdate()->firstOrFail();
             abort_unless($locked->isValid(), 410);
             // Recheck membership and account status while holding the invitation lock.
             // A revoked or inactive central identity must never be linked.
             if ($existing !== null) {
                 abort_unless($existing->fresh()?->is_active, 403);
+            }
+            // A deactivated or removed inviter cannot leave behind a usable invitation.
+            // Preserve compatibility with older invitations that have no inviter recorded.
+            if ($locked->invited_by !== null) {
+                // Re-evaluate the same protected organization-level authority required
+                // to send an invitation. An active membership alone is insufficient.
+                $inviter = User::find($locked->invited_by);
+                abort_unless($permissions->allows($inviter, $locked->organization, OrganizationPermissions::MANAGE_MEMBERS),
+                    403, 'The invitation sender is no longer authorized.');
             }
             // Owner privileges must still be authorized at acceptance time.
             // An owner invitation cannot outlive the inviter's owner authority.

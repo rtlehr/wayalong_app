@@ -132,3 +132,12 @@ Artisan::command('wayalong:encrypt-legacy-documents {--execute : Write encrypted
         return self::FAILURE;
     }
 })->purpose('Review or securely convert older client documents; retains originals for recovery');
+
+\Illuminate\Support\Facades\Artisan::command('wayalong:audit-retention-review', function (): void {
+    $days = max(1, (int) config('wayalong_audit.review_after_days', 365));
+    $threshold = now()->subDays($days);
+    $count = \Illuminate\Support\Facades\DB::table('clinical_access_events')
+        ->where('created_at', '<', $threshold)->count();
+    $this->info("Audit records older than {$days} days requiring retention review: {$count}");
+    $this->line('Read-only report. No records were deleted. Keep records until an approved retention policy authorizes disposal.');
+})->purpose('Review audit retention without modifying or deleting audit records');

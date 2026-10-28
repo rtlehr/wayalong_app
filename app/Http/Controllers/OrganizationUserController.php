@@ -169,8 +169,20 @@ class OrganizationUserController extends Controller
         }
         DB::table('facility_staff_profiles')->where('organization_id', $organization->id)->where('user_id', $user->id)
             ->whereNotIn('facility_id', $allowed)->delete();
-        DB::table('organization_staff_facilities')->where('organization_id', $organization->id)->where('user_id', $user->id)->delete();
-        foreach ($allowed as $id) {
+        // Retain existing roles and secondary role assignments when editing user contact details.
+        $existing = DB::table('organization_staff_facilities')
+            ->where('organization_id', $organization->id)->where('user_id', $user->id)->get();
+        foreach ($existing as $assignment) {
+            if (! in_array((int) $assignment->facility_id, $allowed, true)) {
+                app(\App\Support\FacilityOwnershipGuard::class)->assertCanRemove(
+                    $organization->id, (int) $assignment->facility_id, (int) $assignment->id,
+                    (string) $assignment->role
+                );
+                DB::table('organization_staff_facilities')->where('id', $assignment->id)->delete();
+            }
+        }
+        $existingIds = $existing->pluck('facility_id')->map(fn ($id) => (int) $id)->all();
+        foreach (array_diff($allowed, $existingIds) as $id) {
             DB::table('organization_staff_facilities')->insert([
                 'organization_id' => $organization->id, 'user_id' => $user->id,
                 'facility_id' => $id, 'created_at' => now(), 'updated_at' => now(),
@@ -240,6 +252,9 @@ class OrganizationUserController extends Controller
             if ($contacts !== null) {
                 $this->saveContacts($profile, $contacts);
             }
+            if ($status === 'inactive' && $member->pivot->status === 'active') {
+                app(\App\Support\FacilityOwnershipGuard::class)->assertCanDeactivateMember($organization->id, $member->id);
+            }
             $organization->users()->updateExistingPivot($member->id, ['status' => $status]);
         });
         return redirect()->route('organization.admin.users.edit', $member->id)->with('success', 'User and facility assignments updated.');
@@ -264,16 +279,29 @@ class OrganizationUserController extends Controller
     public function setActive(Request $request, OrganizationContext $context, OrganizationPermissions $permissions, int $user): RedirectResponse
     {
         $organization = $this->organization($request, $context, $permissions);
-        $member = $organization->users()->whereKey($user)->firstOrFail();
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
         $status = $data['is_active'] ? 'active' : 'inactive';
-        if ($status === 'inactive' && $member->pivot->role === 'owner' && $member->pivot->status === 'active') {
-            abort_if($organization->users()->wherePivot('role', 'owner')->wherePivot('status', 'active')
-                ->where('users.id', '!=', $member->id)->count() === 0, 422, 'Cannot deactivate the final active owner.');
-        }
-        $organization->users()->updateExistingPivot($member->id, ['status' => $status]);
+
+        // Serialize status changes with other owner-removal paths. Without the
+        // organization lock, two requests can each see the other active owner
+        // and deactivate both memberships.
+        DB::transaction(function () use ($organization, $user, $status): void {
+            Organization::query()->whereKey($organization->id)->lockForUpdate()->firstOrFail();
+            $member = $organization->users()->whereKey($user)->firstOrFail();
+            if ($status === 'inactive' && $member->pivot->status === 'active') {
+                if ($member->pivot->role === 'owner') {
+                    $remainingOwners = $organization->users()
+                        ->wherePivot('role', 'owner')->wherePivot('status', 'active')
+                        ->where('users.id', '!=', $member->id)->count();
+                    abort_if($remainingOwners === 0, 422, 'Cannot deactivate the final active owner.');
+                }
+                app(\App\Support\FacilityOwnershipGuard::class)
+                    ->assertCanDeactivateMember($organization->id, $member->id);
+            }
+            $organization->users()->updateExistingPivot($member->id, ['status' => $status]);
+        });
         Log::info('WayAlong organization membership status changed', [
-            'actor_id' => $request->user()->id, 'subject_id' => $member->id,
+            'actor_id' => $request->user()->id, 'subject_id' => $user,
             'organization_id' => $organization->id, 'status' => $status,
         ]);
         return back()->with('success', $status === 'active' ? 'Organization membership reactivated.' : 'Organization membership deactivated. Other organizations are unaffected.');
@@ -289,6 +317,7 @@ class OrganizationUserController extends Controller
                 abort_unless($organization->users()->wherePivot('role', 'owner')->wherePivot('status', 'active')->count() > 1, 422, 'Cannot remove the final active owner.');
                 abort_unless($organization->users()->whereKey($request->user()->id)->wherePivot('role', 'owner')->exists(), 403);
             }
+            app(\App\Support\FacilityOwnershipGuard::class)->assertCanDeactivateMember($organization->id, $member->id);
             DB::table('organization_staff_details')->where('organization_id', $organization->id)->where('user_id', $member->id)->delete();
             DB::table('facility_staff_profiles')->where('organization_id', $organization->id)->where('user_id', $member->id)->delete();
             DB::table('organization_staff_facilities')->where('organization_id', $organization->id)->where('user_id', $member->id)->delete();

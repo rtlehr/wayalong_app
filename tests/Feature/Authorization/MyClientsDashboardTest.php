@@ -41,7 +41,7 @@ it('shows only assigned active clients of authorized facilities in the selected 
             ->where('myClients.0.enrolled_on', today()->toDateString())->etc());
 });
 
-it('does not expose clinical caseloads to organization owners without clinical facility permission', function () {
+it('keeps personal caseload scoped to assignment even for organization owners', function () {
     $org = Organization::factory()->create();
     $owner = User::factory()->create();
     $org->users()->attach($owner, ['role' => 'owner', 'status' => 'active']);
@@ -52,10 +52,10 @@ it('does not expose clinical caseloads to organization owners without clinical f
     DB::table('client_staff_assignments')->insert(['organization_id' => $org->id, 'client_enrollment_id' => $client->id, 'user_id' => $owner->id, 'created_at' => now(), 'updated_at' => now()]);
     $this->actingAs($owner)->withSession([OrganizationContext::SESSION_KEY => $org->id])
         ->get(route('dashboard'))->assertOk()->assertInertia(fn (Assert $page) => $page
-            ->component('Dashboard')->where('canViewClinicalClients', false)->has('myClients', 0)->etc());
+            ->component('Dashboard')->where('canViewClinicalClients', true)->has('myClients', 1)->etc());
 });
 
-it('does not turn a facility owner administrative view into access to the clinical caseload', function () {
+it('grants owner ordinary clinical capability but retains a separate personal caseload', function () {
     $org = Organization::factory()->create();
     $owner = User::factory()->create();
     $org->users()->attach($owner, ['role' => 'owner', 'status' => 'active']);
@@ -70,10 +70,10 @@ it('does not turn a facility owner administrative view into access to the clinic
     $permissions = app(\App\Support\FacilityPermissions::class);
     expect($permissions->allows($owner, $facility, \App\Support\FacilityPermissions::VIEW_CLIENTS))->toBeTrue()
         ->and($permissions->allows($owner, $facility, \App\Support\FacilityPermissions::MANAGE_CLIENTS))->toBeTrue()
-        ->and($permissions->allows($owner, $facility, \App\Support\FacilityPermissions::VIEW_CLINICAL_CASELOAD))->toBeFalse();
+        ->and($permissions->allows($owner, $facility, \App\Support\FacilityPermissions::VIEW_CLINICAL_CASELOAD))->toBeTrue();
 
     $this->get(route('dashboard'))->assertOk()->assertInertia(fn (Assert $page) => $page
-        ->component('Dashboard')->where('canViewClinicalClients', false)->has('myClients', 0)->etc());
+        ->component('Dashboard')->where('canViewClinicalClients', true)->has('myClients', 0)->etc());
 });
 
 it('does not disclose assigned clients from another organization', function () {

@@ -36,21 +36,9 @@ final class AuditTreatmentAccess
 
     private function record(Request $request, string $section, string $outcome): void
     {
-        $user = $request->user();
         $enrollment = $request->route('enrollment');
-        $organization = app(OrganizationContext::class)->current($request);
-
-        if ($user === null || ! $enrollment instanceof ClientEnrollment || $organization === null) {
-            return;
+        if ($enrollment instanceof ClientEnrollment) {
+            app(\App\Support\SensitiveAccessAudit::class)->record($request, $enrollment, $section, $outcome);
         }
-
-        DB::table('clinical_access_events')->insert([
-            'organization_id' => $organization->id,
-            'client_enrollment_id' => $enrollment->id,
-            'user_id' => $user->id,
-            'section' => $section,
-            'outcome' => $outcome,
-            'created_at' => now(),
-        ]);
     }
 }

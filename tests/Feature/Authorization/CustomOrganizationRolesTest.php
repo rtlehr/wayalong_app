@@ -76,3 +76,60 @@ it('denies custom role management to ordinary staff', function () {
     $this->actingAs($staff)->withSession([OrganizationContext::SESSION_KEY => $org->id]);
     $this->post(route('organization.admin.roles.store'), ['name' => 'Unauthorized', 'permissions' => []])->assertForbidden();
 });
+
+it('applies a granular facility permission from a custom organization role only at an assigned facility', function () {
+    $org = Organization::factory()->create();
+    $owner = customRoleAdmin($org);
+    $this->actingAs($owner)->withSession([OrganizationContext::SESSION_KEY => $org->id]);
+
+    $this->post(route('organization.admin.roles.store'), [
+        'name' => 'Shift handoff reviewer',
+        'permissions' => [\App\Support\FacilityPermissions::VIEW_SHIFT_NOTES, \App\Support\FacilityPermissions::ACK_SHIFT_NOTES],
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $role = $org->customRoles()->firstOrFail();
+    $staff = User::factory()->create();
+    $staff->organizations()->attach($org, ['role' => 'custom:'.$role->id, 'status' => 'active']);
+    $assigned = \App\Models\Facility::factory()->create(['organization_id' => $org->id]);
+    $unassigned = \App\Models\Facility::factory()->create(['organization_id' => $org->id]);
+    \Illuminate\Support\Facades\DB::table('organization_staff_facilities')->insert([
+        'organization_id' => $org->id, 'facility_id' => $assigned->id, 'user_id' => $staff->id,
+        'role' => 'custom:'.$role->id, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    $permissions = app(\App\Support\FacilityPermissions::class);
+
+    expect($permissions->allows($staff, $assigned, \App\Support\FacilityPermissions::VIEW_SHIFT_NOTES))->toBeTrue()
+        ->and($permissions->allows($staff, $assigned, \App\Support\FacilityPermissions::ACK_SHIFT_NOTES))->toBeTrue()
+        ->and($permissions->allows($staff, $assigned, \App\Support\FacilityPermissions::WRITE_SHIFT_NOTES))->toBeFalse()
+        ->and($permissions->allows($staff, $assigned, \App\Support\FacilityPermissions::MANAGE_CLIENTS))->toBeFalse()
+        ->and($permissions->allows($staff, $unassigned, \App\Support\FacilityPermissions::VIEW_SHIFT_NOTES))->toBeFalse();
+
+    $this->patch(route('organization.admin.roles.update', $role->id), [
+        'name' => 'Shift handoff reviewer', 'permissions' => [],
+    ])->assertRedirect()->assertSessionHasNoErrors();
+    expect($permissions->allows($staff, $assigned, \App\Support\FacilityPermissions::VIEW_SHIFT_NOTES))->toBeFalse();
+});
+
+it('does not allow a custom role to grant full organization administration', function () {
+    $org = Organization::factory()->create();
+    $this->actingAs(customRoleAdmin($org))->withSession([OrganizationContext::SESSION_KEY => $org->id]);
+    $this->post(route('organization.admin.roles.store'), [
+        'name' => 'Escalation attempt',
+        'permissions' => [OrganizationPermissions::MANAGE_ORGANIZATION],
+    ])->assertSessionHasErrors('permissions.0');
+    expect($org->customRoles()->count())->toBe(0);
+});
+
+it('exposes only the supported granular permission keys and valid templates', function () {
+    $supported = OrganizationPermissions::CUSTOM_ROLE_PERMISSIONS;
+    foreach (OrganizationPermissions::permissionGroups() as $group) {
+        foreach ($group['permissions'] as $permission) {
+            expect($permission['key'])->toBeIn($supported);
+        }
+    }
+    foreach (OrganizationPermissions::roleTemplates() as $template) {
+        foreach ($template['permissions'] as $permission) {
+            expect($permission)->toBeIn($supported);
+        }
+    }
+});

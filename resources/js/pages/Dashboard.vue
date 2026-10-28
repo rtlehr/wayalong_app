@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
-import { Building2, Mail, ArrowRight, MapPin, CheckCircle2, Users, Contact, ClipboardList, ShieldAlert, CalendarDays, Clock3, Eye } from '@lucide/vue';
+import { Building2, Mail, ArrowRight, MapPin, CheckCircle2, Users, Contact, ClipboardList, ShieldAlert, CalendarDays, Clock3, Eye, Plus, Settings2, UserRoundCog, Files, Layers3 } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -12,6 +12,11 @@ type ClientAlert = { id: number; category: string; priority: 'high' | 'warning' 
 type ShiftPreview = { id: number; shift_date: string; shift: string; summary: string; handoff: string | null; author_id: number; author_name: string; created_at: string };
 type AssignedClient = { latestShiftNote: ShiftPreview | null; activeAlertCount: number; alerts: ClientAlert[]; id: number; name: string; facility_id: number; facility_name: string; status: string; enrolled_on: string | null; phone: string | null; email: string | null };
 const props = defineProps<{ memberships: Membership[]; myClients: AssignedClient[]; canViewClinicalClients: boolean; activeOrganizationId: number | null; activeFacilityId: number | null; activeFacilityPermissions: string[] }>();
+const currentOrganization = computed(() => props.memberships.find(organization => organization.id === props.activeOrganizationId) ?? null);
+const currentFacility = computed(() => currentOrganization.value?.facilities.find(facility => facility.id === props.activeFacilityId) ?? null);
+const canManageOrganization = computed(() => currentOrganization.value !== null && ['owner', 'admin'].includes(currentOrganization.value.role));
+const canViewFacilityClients = computed(() => props.activeFacilityPermissions.includes('facility.clients.view'));
+const canManageFacilityDocuments = computed(() => props.activeFacilityPermissions.includes('facility.clients.manage'));
 const switching = ref(false);
 const quickViewOpen = ref(false);
 const alertFormOpen = ref(false);
@@ -149,6 +154,10 @@ function openClient(client: AssignedClient, section: 'personal' | 'contact' = 'p
     <Head title="My WayAlong" />
     <main class="mx-auto w-full max-w-6xl space-y-6 p-4 md:p-8">
         <header class="space-y-1"><h1 class="text-2xl font-semibold">My WayAlong</h1><p class="text-sm text-muted-foreground">Your personal dashboard and authorized organization and facility relationships.</p></header>
+        <div v-if="currentOrganization" class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-card px-4 py-3 shadow-sm dark:border-border" aria-label="Current WayAlong workspace">
+            <div class="flex min-w-0 items-center gap-3"><div class="rounded-lg bg-slate-100 p-2 dark:bg-muted"><MapPin class="size-5"/></div><div><p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Current workspace</p><p class="font-semibold">{{ currentOrganization.name }} <span class="font-normal text-muted-foreground">/</span> {{ currentFacility?.name ?? 'Select a facility below' }}</p></div></div>
+            <a href="#workspace-heading" class="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-accent">{{ currentFacility ? 'Switch facility or manage workspace' : 'Choose facility' }} ↓</a>
+        </div>
         <section v-if="canViewClinicalClients" class="space-y-3" aria-labelledby="my-clients-heading">
             <div class="flex flex-wrap items-center justify-between gap-2">
                 <div><h2 id="my-clients-heading" class="text-xl font-semibold">My Clients</h2><p class="text-sm text-muted-foreground">Clients assigned to you in your authorized facilities.</p></div>
@@ -300,28 +309,67 @@ function openClient(client: AssignedClient, section: 'personal' | 'contact' = 'p
                 </form>
             </DialogContent>
         </Dialog>
-        <Link href="/messages" class="flex items-center justify-between rounded-xl border p-4 hover:bg-accent"><span class="flex items-center gap-3"><Mail class="size-5"/><span><strong class="block">Message Center</strong><small class="text-muted-foreground">Read notifications and invitations</small></span></span><ArrowRight class="size-4" /></Link>
-        <section class="space-y-3"><h2 class="text-lg font-semibold">My organizations & facilities</h2>
-            <p v-if="!memberships.length" class="rounded-xl border p-6 text-sm text-muted-foreground">You do not have any active organization memberships yet. Invitations will appear in your Message Center when available.</p>
-            <div v-else class="grid gap-4 md:grid-cols-2">
-                <article v-for="organization in memberships" :key="organization.id" class="space-y-4 rounded-xl border p-5">
-                    <div class="flex items-start gap-3"><Building2 class="mt-1 size-5"/><div class="flex-1"><h3 class="font-semibold">{{ organization.name }}</h3><p class="text-sm capitalize text-muted-foreground">{{ organization.role }}</p></div><span v-if="activeOrganizationId === organization.id" class="text-xs font-medium text-green-700 dark:text-green-400">Current</span></div>
-                    <button type="button" class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50" :disabled="switching || activeOrganizationId === organization.id" @click="enterOrganization(organization.id)">{{ activeOrganizationId === organization.id ? 'Organization selected' : 'Enter organization' }}</button>
-                    <div class="space-y-2 border-t pt-3">
-                        <h4 class="text-sm font-semibold">My facility assignments</h4>
-                        <p v-if="!organization.facilities.length" class="text-sm text-muted-foreground">No active facility assignments. Organization access may still be available based on your role.</p>
-                        <div v-for="facility in organization.facilities" :key="facility.id" class="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3">
-                            <div class="flex items-start gap-2"><MapPin class="mt-0.5 size-4"/><div><p class="text-sm font-medium">{{ facility.name }}</p><p class="text-xs capitalize text-muted-foreground">{{ facility.role || 'Assigned staff' }}</p></div></div>
-                            <span v-if="activeOrganizationId === organization.id && activeFacilityId === facility.id" class="inline-flex items-center gap-1 text-xs text-green-700 dark:text-green-400"><CheckCircle2 class="size-4"/> Selected</span>
-                            <button v-else type="button" class="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50" :disabled="switching || activeOrganizationId !== organization.id" @click="enterFacility(organization.id, facility.id, activeOrganizationId)">{{ activeOrganizationId === organization.id ? 'Select facility' : 'Enter organization first' }}</button>
+        <section class="space-y-4" aria-labelledby="workspace-heading">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Your organization</p>
+                    <h2 id="workspace-heading" class="text-xl font-semibold">Organization &amp; facility workspace</h2>
+                    <p class="text-sm text-muted-foreground">Select your facility first; the workspace actions apply to that location.</p>
+                </div>
+                <Link v-if="canManageOrganization" href="/organization/admin/facilities" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90"><Plus class="size-4"/> Add facility</Link>
+            </div>
+            <p v-if="!memberships.length" class="rounded-xl border bg-card p-6 text-sm text-muted-foreground">You do not have any active organization memberships yet. Invitations will appear in your Message Center when available.</p>
+            <div v-if="memberships.length > 1" class="grid gap-3 sm:grid-cols-2" aria-label="Switch organization">
+                <button v-for="organization in memberships" :key="organization.id" type="button" :disabled="switching || activeOrganizationId === organization.id" class="flex items-center justify-between rounded-xl border bg-card px-4 py-3 text-left text-sm hover:bg-accent disabled:cursor-default disabled:opacity-70" @click="enterOrganization(organization.id)">
+                    <span class="flex items-center gap-2"><Building2 class="size-4"/> {{ organization.name }}</span>
+                    <span class="text-xs font-medium">{{ activeOrganizationId === organization.id ? 'Current' : 'Switch organization →' }}</span>
+                </button>
+            </div>
+            <div v-if="currentOrganization" class="overflow-hidden rounded-2xl border border-slate-200 bg-card shadow-sm dark:border-border">
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b bg-slate-50/80 px-5 py-4 dark:bg-muted/40">
+                    <div class="flex items-center gap-3">
+                        <div class="rounded-xl bg-background p-2.5 shadow-sm"><Building2 class="size-5"/></div>
+                        <div><h3 class="font-semibold">{{ currentOrganization.name }}</h3><p class="text-xs capitalize text-muted-foreground">Organization {{ currentOrganization.role }}</p></div>
+                    </div>
+                    <span class="rounded-full border bg-background px-3 py-1 text-xs font-semibold">Current organization</span>
+                </div>
+                <div class="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between gap-2"><h4 class="font-semibold">Choose a facility</h4><span class="text-xs text-muted-foreground">{{ currentOrganization.facilities.length }} available</span></div>
+                        <p v-if="!currentOrganization.facilities.length" class="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No active facilities are available. {{ canManageOrganization ? 'Use Add facility to get started.' : 'Ask your organization administrator for access.' }}</p>
+                        <div v-for="facility in currentOrganization.facilities" :key="facility.id" class="rounded-xl border p-3 transition" :class="activeFacilityId === facility.id ? 'border-slate-500 bg-slate-100/75 ring-1 ring-slate-300 dark:border-slate-400 dark:bg-muted/60' : 'hover:border-slate-300 hover:bg-muted/40'">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <div class="flex min-w-0 items-start gap-2"><MapPin class="mt-0.5 size-4 shrink-0"/><div><p class="text-sm font-semibold">{{ facility.name }}</p><p class="text-xs capitalize text-muted-foreground">{{ facility.role || 'Authorized organization facility' }}</p></div></div>
+                                <span v-if="activeFacilityId === facility.id" class="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400"><CheckCircle2 class="size-4"/> Active workspace</span>
+                                <button v-else type="button" class="rounded-lg border bg-background px-3 py-2 text-xs font-semibold shadow-sm hover:bg-accent disabled:opacity-50" :disabled="switching" @click="enterFacility(currentOrganization.id, facility.id, activeOrganizationId)">{{ switching ? 'Switching…' : 'Switch workspace' }}</button>
+                            </div>
                         </div>
                     </div>
-                </article>
+                    <div class="space-y-4 rounded-xl border bg-slate-50/70 p-4 dark:bg-muted/30" aria-live="polite">
+                        <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.13em] text-muted-foreground"><Layers3 class="size-4"/> Active facility workspace</div>
+                        <template v-if="currentFacility">
+                            <div class="space-y-1"><h4 class="text-xl font-bold tracking-tight">{{ currentFacility.name }}</h4><p class="text-sm text-muted-foreground">You're working in this facility. The actions below use this facility context.</p></div>
+                            <div class="grid gap-2 sm:grid-cols-2">
+                                <Link href="/facility/staff" class="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-400 hover:shadow-md"><Users class="size-5 shrink-0"/><span class="min-w-0"><strong class="block text-sm">Staff roster</strong><small class="text-muted-foreground">People &amp; roles</small></span><ArrowRight class="ml-auto size-4 shrink-0"/></Link>
+                                <Link v-if="canViewFacilityClients" href="/facility/clients" class="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-400 hover:shadow-md"><Contact class="size-5 shrink-0"/><span class="min-w-0"><strong class="block text-sm">Client directory</strong><small class="text-muted-foreground">Authorized clients</small></span><ArrowRight class="ml-auto size-4 shrink-0"/></Link>
+                                <Link v-if="canManageFacilityDocuments" href="/facility/documents/audit" class="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-400 hover:shadow-md"><Files class="size-5 shrink-0"/><span class="min-w-0"><strong class="block text-sm">Document audit</strong><small class="text-muted-foreground">Administrative records</small></span><ArrowRight class="ml-auto size-4 shrink-0"/></Link>
+                                <Link v-if="canManageOrganization" href="/organization/admin/facilities" class="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-400 hover:shadow-md"><Settings2 class="size-5 shrink-0"/><span class="min-w-0"><strong class="block text-sm">Facility settings</strong><small class="text-muted-foreground">Manage facility details</small></span><ArrowRight class="ml-auto size-4 shrink-0"/></Link>
+                            </div>
+                        </template>
+                        <div v-else class="rounded-lg border border-dashed bg-background p-5 text-sm text-muted-foreground">Select a facility to open its workspace tools.</div>
+                    </div>
+                </div>
+            </div>
+            <div v-if="canManageOrganization" class="space-y-3 rounded-2xl border bg-card p-5">
+                <div><h3 class="text-lg font-semibold">Organization management</h3><p class="text-sm text-muted-foreground">These actions affect the organization, not just the selected facility.</p></div>
+                <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    <Link href="/organization/admin/facilities" class="flex items-center gap-2 rounded-lg border px-3 py-3 text-sm font-medium hover:bg-accent"><Plus class="size-4"/> Add / manage facilities <ArrowRight class="ml-auto size-4"/></Link>
+                    <Link href="/organization/admin" class="flex items-center gap-2 rounded-lg border px-3 py-3 text-sm font-medium hover:bg-accent"><Settings2 class="size-4"/> Organization settings <ArrowRight class="ml-auto size-4"/></Link>
+                    <Link href="/organization/admin/roles" class="flex items-center gap-2 rounded-lg border px-3 py-3 text-sm font-medium hover:bg-accent"><UserRoundCog class="size-4"/> Roles &amp; permissions <ArrowRight class="ml-auto size-4"/></Link>
+                    <Link href="/admin" class="flex items-center gap-2 rounded-lg border px-3 py-3 text-sm font-medium hover:bg-accent"><Layers3 class="size-4"/> Admin Command Center <ArrowRight class="ml-auto size-4"/></Link>
+                </div>
             </div>
         </section>
-        <Link v-if="activeFacilityId" href="/facility/staff" class="inline-flex items-center gap-2 rounded-md border px-4 py-2 text-sm hover:bg-accent">View selected facility staff roster <ArrowRight class="size-4" /></Link>
-        <Link v-if="activeFacilityId && activeFacilityPermissions.includes('facility.clients.view')" href="/facility/clients" class="inline-flex items-center gap-2 rounded-md border px-4 py-2 text-sm hover:bg-accent">View selected facility clients <ArrowRight class="size-4" /></Link>
-        <Link v-if="activeFacilityId && activeFacilityPermissions.includes('facility.clients.manage')" href="/facility/documents/audit" class="inline-flex items-center gap-2 rounded-md border px-4 py-2 text-sm hover:bg-accent">Document Administration &amp; Audit <ArrowRight class="size-4" /></Link>
-        <p class="text-xs text-muted-foreground">Facility selection establishes your active workspace. Facility-specific permission enforcement throughout all clinical modules will be introduced separately; organization permissions still apply.</p>
+        <Link href="/messages" class="flex items-center justify-between rounded-xl border bg-card p-4 shadow-sm transition hover:bg-accent"><span class="flex items-center gap-3"><Mail class="size-5"/><span><strong class="block">Message Center</strong><small class="text-muted-foreground">Read notifications and invitations</small></span></span><ArrowRight class="size-4" /></Link>
     </main>
 </template>

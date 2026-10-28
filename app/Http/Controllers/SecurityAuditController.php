@@ -22,8 +22,8 @@ final class SecurityAuditController extends Controller
             'user_id' => ['nullable', 'integer', 'min:1'],
             'client_enrollment_id' => ['nullable', 'integer', 'min:1'],
             'facility_id' => ['nullable', 'integer', 'min:1'],
-            'section' => ['nullable', Rule::in(['overview', 'alerts', 'shift_notes'])],
-            'outcome' => ['nullable', Rule::in(['viewed', 'denied'])],
+            'section' => ['nullable', Rule::in(['overview', 'alerts', 'shift_notes', 'admin_profile', 'document_download', 'directory_export'])],
+            'outcome' => ['nullable', Rule::in(['viewed', 'denied', 'exported'])],
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
         ]);
